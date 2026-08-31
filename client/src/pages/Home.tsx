@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { trpc } from "@/lib/trpc";
+import { supabase } from "@/lib/supabase";
 import { buildSearchWindow } from "@/lib/searchFilters";
 import { FindRideFilters } from "@/components/FindRideFilters";
 import { ChatModal } from "@/components/ChatModal";
@@ -97,17 +98,67 @@ function StarInput({ value, onChange }: { value: number; onChange: (v: number) =
   return <div className="flex gap-1">{[1,2,3,4,5].map(s => <button key={s} onClick={() => onChange(s)} className="p-0.5"><Star className={`h-5 w-5 ${s <= value ? "fill-[#F06A3A] text-[#F06A3A]" : "text-[#cbd7cd]"}`} /></button>)}</div>;
 }
 
-/* ── Notification dropdown ── */
+/* ── Notification dropdown with Supabase Realtime & Web Push support ── */
 function NotificationBell() {
-  const { isAuthenticated } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const [open, setOpen] = useState(false);
   const countQuery = trpc.notifications.unreadCount.useQuery(undefined, { enabled: isAuthenticated, refetchInterval: 30000 });
   const listQuery = trpc.notifications.list.useQuery(undefined, { enabled: isAuthenticated && open });
   const markAllMutation = trpc.notifications.markAllRead.useMutation({ onSuccess: () => { countQuery.refetch(); listQuery.refetch(); } });
   const count = (countQuery.data ?? 0) as number;
 
+  const requestNotificationPermission = () => {
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+  };
+
+  const triggerBrowserPush = (title: string, message: string) => {
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+      try {
+        new Notification(title, { body: message, icon: "/favicon.ico" });
+      } catch {
+        // Ignored if browser policy blocks sync Notification constructor
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) return;
+
+    const channel = supabase
+      .channel(`user_notifications_${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "notifications",
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const newNotif = payload.new as any;
+          if (newNotif) {
+            countQuery.refetch();
+            if (open) listQuery.refetch();
+
+            toast.info(newNotif.title || "Notification", {
+              description: newNotif.message,
+            });
+
+            triggerBrowserPush(newNotif.title || "RideMate Notification", newNotif.message || "");
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isAuthenticated, user?.id, open, countQuery, listQuery]);
+
   return <div className="relative">
-    <button onClick={() => { if (!isAuthenticated) { toast("Sign in to see notifications"); return; } setOpen(!open); }} aria-label="Notifications" className="relative flex h-10 w-10 items-center justify-center rounded-full border border-[#dfe5df] bg-[#fffdfa] text-[#5e7168]">
+    <button onClick={() => { if (!isAuthenticated) { toast("Sign in to see notifications"); return; } requestNotificationPermission(); setOpen(!open); }} aria-label="Notifications" className="relative flex h-10 w-10 items-center justify-center rounded-full border border-[#dfe5df] bg-[#fffdfa] text-[#5e7168]">
       <Bell className="h-4 w-4" />
       {count > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#F06A3A] px-1 text-[9px] font-bold text-white">{count > 9 ? "9+" : count}</span>}
     </button>
@@ -210,6 +261,39 @@ export default function Home() {
       setProfilePhone(profile.phone_number ?? "");
     }
   }, [profileQuery.data]);
+
+  // Real-time Ride Feed synchronization & Offline/Focus recovery
+  useEffect(() => {
+    const ridesChannel = supabase
+      .channel("realtime_rides_feed")
+      .on(
+        "postgres_changes",
+        {
+          event: "*", // LISTEN TO INSERT, UPDATE, DELETE ON RIDES
+          schema: "public",
+          table: "rides",
+        },
+        () => {
+          utils.rides.search.invalidate();
+          if (isAuthenticated) utils.rides.mine.invalidate();
+        }
+      )
+      .subscribe();
+
+    const handleSync = () => {
+      utils.rides.search.invalidate();
+      if (isAuthenticated) utils.rides.mine.invalidate();
+    };
+
+    window.addEventListener("online", handleSync);
+    window.addEventListener("focus", handleSync);
+
+    return () => {
+      supabase.removeChannel(ridesChannel);
+      window.removeEventListener("online", handleSync);
+      window.removeEventListener("focus", handleSync);
+    };
+  }, [utils, isAuthenticated]);
 
   const nav = (next: View) => {
     if (next === "find") {
