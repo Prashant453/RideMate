@@ -9,6 +9,8 @@ import {
   getNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead,
 } from './db';
 
+import { supabaseAdmin } from './supabaseAdmin';
+
 const rideInput = z.object({
   vehicleId: z.number().int().positive().optional(),
   originLocationId: z.number().int().positive(),
@@ -21,6 +23,27 @@ const rideInput = z.object({
 export const appRouter = router({
   auth: router({
     me: publicProcedure.query(({ ctx }) => ctx.user),
+    register: publicProcedure
+      .input(z.object({
+        email: z.string().email(),
+        password: z.string().min(6),
+        name: z.string().min(2),
+      }))
+      .mutation(async ({ input }) => {
+        const { data, error } = await supabaseAdmin.auth.admin.createUser({
+          email: input.email,
+          password: input.password,
+          email_confirm: true,
+          user_metadata: { name: input.name },
+        });
+        if (error) {
+          if (error.message?.includes('already') || error.status === 422) {
+            throw new TRPCError({ code: 'CONFLICT', message: 'An account with this email already exists.' });
+          }
+          throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+        }
+        return { user: data.user };
+      }),
   }),
   locations: publicProcedure.query(() => listLocations()),
   colleges: publicProcedure.query(() => listColleges()),

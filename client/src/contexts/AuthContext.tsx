@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { trpc } from '@/lib/trpc';
 
 interface AuthState {
   user: User | null;
@@ -18,6 +19,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const utils = trpc.useUtils();
 
   useEffect(() => {
     // Get initial session
@@ -38,18 +40,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signUp = async (email: string, password: string, name: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { name } },
-    });
-    if (error) return { error: error.message };
+    try {
+      // 1. Try server-side admin creation first (auto-confirms email)
+      const res = await utils.client.auth.register.mutate({ email, password, name });
+      if (res?.user) {
+        // Log in immediately
+        const loginRes = await supabase.auth.signInWithPassword({ email, password });
+        if (loginRes.error) return { error: loginRes.error.message };
+        return { error: null };
+      }
+    } catch (e: any) {
+      if (e.message?.includes('already exists') || e.code === 'CONFLICT') {
+        return { error: 'An account with this email already exists. Please sign in.' };
+      }
+      // Fallback to standard client sign up if server endpoint fails
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { name } },
+      });
+      if (error) return { error: error.message };
+    }
+
+    // Try signing in immediately
+    const loginRes = await supabase.auth.signInWithPassword({ email, password });
+    if (loginRes.error) {
+      if (loginRes.error.message.includes('Email not confirmed')) {
+        return { error: 'Account created! Please check your email inbox to confirm, or contact admin.' };
+      }
+      return { error: loginRes.error.message };
+    }
+
     return { error: null };
   };
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return { error: error.message };
+    if (error) {
+      if (error.message.includes('Email not confirmed')) {
+        return { error: 'Email not confirmed. Please check your inbox or turn off email confirmation in Supabase.' };
+      }
+      return { error: error.message };
+    }
     return { error: null };
   };
 
