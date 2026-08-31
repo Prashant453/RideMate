@@ -576,3 +576,107 @@ export async function markChatRead(rideId: number, otherUserId: string, currentU
   return { success: true };
 }
 
+// ── Admin Platform & Management ──────────────────────────────
+export async function getPlatformStats() {
+  const [usersRes, verifiedRes, ridesRes, openRidesRes] = await Promise.all([
+    supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }),
+    supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }).eq('verification_status', 'verified'),
+    supabaseAdmin.from('rides').select('*', { count: 'exact', head: true }),
+    supabaseAdmin.from('rides').select('*', { count: 'exact', head: true }).eq('status', 'open'),
+  ]);
+
+  return {
+    totalUsers: usersRes.count || 0,
+    verifiedUsers: verifiedRes.count || 0,
+    totalRides: ridesRes.count || 0,
+    openRides: openRidesRes.count || 0,
+  };
+}
+
+export async function adminListAllRides() {
+  const { data, error } = await supabaseAdmin
+    .from('rides')
+    .select(`
+      *,
+      profiles!rides_driver_id_fkey(name, email, verification_status),
+      vehicles(model, type)
+    `)
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return data || [];
+}
+
+export async function adminCancelRide(rideId: number) {
+  const { error } = await supabaseAdmin
+    .from('rides')
+    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .eq('id', rideId);
+  if (error) throw error;
+  return { success: true };
+}
+
+export async function adminAddLocation(name: string, type = 'area') {
+  const { data, error } = await supabaseAdmin
+    .from('locations')
+    .insert({ name, type, is_active: true })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function adminAddCollege(name: string, domain?: string, city?: string, state?: string) {
+  const { data, error } = await supabaseAdmin
+    .from('colleges')
+    .insert({ name, domain: domain || null, city: city || null, state: state || null, is_active: true })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function adminSendAnnouncement(authorId: string, title: string, message: string, targetCollegeId?: number) {
+  const { data, error } = await supabaseAdmin
+    .from('announcements')
+    .insert({
+      author_id: authorId,
+      title: title.trim(),
+      message: message.trim(),
+      target_college_id: targetCollegeId || null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+
+  let targetQuery = supabaseAdmin.from('profiles').select('id');
+  if (targetCollegeId) targetQuery = targetQuery.eq('college_id', targetCollegeId);
+  const { data: targetUsers } = await targetQuery;
+
+  if (targetUsers && targetUsers.length > 0) {
+    const notifications = targetUsers.map((u: any) => ({
+      user_id: u.id,
+      type: 'announcement',
+      title: `[Announcement] ${title}`,
+      message: message,
+      reference_id: data.id,
+    }));
+
+    await supabaseAdmin.from('notifications').insert(notifications);
+  }
+
+  return data;
+}
+
+export async function superAdminUpdateRole(targetUserId: string, newRole: 'user' | 'admin' | 'super_admin') {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .update({ role: newRole, updated_at: new Date().toISOString() })
+    .eq('id', targetUserId)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+

@@ -732,4 +732,38 @@ CREATE TRIGGER on_new_ride_created
   WHEN (NEW.status = 'open')
   EXECUTE FUNCTION notify_college_students_on_new_ride();
 
+-- -----------------------------------------------------------------------------
+-- SECTION 6: ADMIN RBAC & ANNOUNCEMENTS
+-- -----------------------------------------------------------------------------
+
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
+ALTER TABLE profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('user', 'admin', 'super_admin'));
+
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_verification_status_check;
+ALTER TABLE profiles ADD CONSTRAINT profiles_verification_status_check CHECK (verification_status IN ('pending', 'verified', 'rejected', 'suspended'));
+
+CREATE TABLE IF NOT EXISTS reports (
+  id serial PRIMARY KEY,
+  reporter_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  reported_user_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
+  reported_ride_id integer REFERENCES rides(id) ON DELETE CASCADE,
+  reason text NOT NULL,
+  status text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved', 'dismissed')),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS announcements (
+  id serial PRIMARY KEY,
+  author_id uuid NOT NULL REFERENCES profiles(id),
+  title text NOT NULL,
+  message text NOT NULL,
+  target_college_id integer REFERENCES colleges(id),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+UPDATE profiles 
+SET role = 'super_admin', verification_status = 'verified' 
+WHERE email = 'prashant65001@gmail.com';
+
+
 

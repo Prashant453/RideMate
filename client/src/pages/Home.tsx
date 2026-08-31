@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { buildSearchWindow } from "@/lib/searchFilters";
 import { FindRideFilters } from "@/components/FindRideFilters";
 import { ChatModal } from "@/components/ChatModal";
+import { AdminDashboard } from "@/components/AdminDashboard";
 import {
   ArrowRight,
   Bell,
@@ -35,7 +36,7 @@ import {
   X,
 } from "lucide-react";
 
-type View = "home" | "find" | "offer" | "rides" | "profile";
+type View = "home" | "find" | "offer" | "rides" | "profile" | "admin";
 type DisplayRide = { id: number; time: string; origin: string; destination: string; name: string; rating: string; vehicle: string; seats: number };
 type RidesTab = "offered" | "requested";
 
@@ -277,12 +278,7 @@ export default function Home() {
     },
     onError: (e: any) => toast.error(e.message || "Could not update verification status"),
   });
-  const makeAdminMutation = trpc.admin.makeAdmin.useMutation({
-    onSuccess: () => {
-      toast.success("Account updated! Admin controls enabled.");
-      utils.profile.me.invalidate();
-    },
-  });
+
 
   // Mutations
   const acceptRequestMutation = trpc.rides.acceptRequest.useMutation({ onSuccess: () => { toast.success("Request accepted"); rideRequestsQuery.refetch(); utils.rides.mine.invalidate(); }, onError: (e: any) => toast.error(e.message || "Could not accept") });
@@ -378,9 +374,11 @@ export default function Home() {
   const mobileNav = (key: View, Icon: typeof House, label: string) => <button onClick={() => nav(key)} className={`flex min-w-[54px] flex-col items-center gap-1 text-[9px] font-bold ${view === key ? "text-[#F06A3A]" : "text-[#859189]"}`}><span className={`flex h-8 w-8 items-center justify-center rounded-xl ${view === key ? "bg-[#fff0e7]" : ""}`}><Icon className="h-4 w-4" /></span>{label}</button>;
 
   return <div className="min-h-screen bg-[#f7f5ef] text-[#142633]">
-    <header className="wayfinding-rail sticky top-0 z-30 border-b border-[#e6e9e2]/80 bg-[#f7f5ef]/95 backdrop-blur-md"><div className="mx-auto flex h-[72px] max-w-[1380px] items-center justify-between px-5 sm:px-8 lg:px-12"><button onClick={() => nav("home")} aria-label="RideMate home"><Logo /></button><nav className="hidden items-center gap-7 text-[12px] font-bold text-[#708077] lg:flex">{[["home", "Home"], ["find", "Find a ride"], ["offer", "Offer a ride"], ["rides", "My rides"]].map(([key, label]) => <button key={key} onClick={() => nav(key as View)} className={`transition hover:text-[#142633] ${view === key ? "text-[#142633]" : ""}`}>{label}</button>)}</nav><div className="flex items-center gap-2.5"><NotificationBell onNavigate={nav} /><button onClick={() => isAuthenticated ? nav("profile") : nav("profile")} className="hidden items-center gap-2 rounded-full border border-[#dfe5df] bg-[#fffdfa] py-1.5 pl-1.5 pr-3 text-left sm:flex"><div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#dfeae2] text-[10px] font-bold text-[#356344]">{(user?.user_metadata?.name ?? user?.email ?? "G").slice(0, 2).toUpperCase()}</div><span className="text-[11px] font-bold text-[#30433e]">{user?.user_metadata?.name ?? user?.email?.split("@")[0] ?? "Guest"}</span></button><button onClick={() => setMenuOpen(!menuOpen)} className="flex h-10 w-10 items-center justify-center rounded-full border border-[#dfe5df] bg-[#fffdfa] lg:hidden"><Menu className="h-4 w-4" /></button></div></div>{menuOpen && <div className="border-t border-[#e6e9e2] bg-[#fffdfa] px-5 py-4 lg:hidden"><div className="grid gap-1">{[["home", "Home"], ["find", "Find a ride"], ["offer", "Offer a ride"], ["rides", "My rides"], ["profile", "Profile"]].map(([key, label]) => <button key={key} onClick={() => nav(key as View)} className="rounded-xl px-3 py-3 text-left text-sm font-bold text-[#30433e] hover:bg-[#f1f4ef]">{label}</button>)}</div></div>}</header>
+    <header className="wayfinding-rail sticky top-0 z-30 border-b border-[#e6e9e2]/80 bg-[#f7f5ef]/95 backdrop-blur-md"><div className="mx-auto flex h-[72px] max-w-[1380px] items-center justify-between px-5 sm:px-8 lg:px-12"><button onClick={() => nav("home")} aria-label="RideMate home"><Logo /></button><nav className="hidden items-center gap-7 text-[12px] font-bold text-[#708077] lg:flex">{( ( (profileQuery.data as any)?.user?.role === "admin" || (profileQuery.data as any)?.user?.role === "super_admin" ) ? [["home", "Home"], ["find", "Find a ride"], ["offer", "Offer a ride"], ["rides", "My rides"], ["admin", "Admin"]] : [["home", "Home"], ["find", "Find a ride"], ["offer", "Offer a ride"], ["rides", "My rides"]] ).map(([key, label]) => <button key={key} onClick={() => nav(key as View)} className={`transition hover:text-[#142633] ${view === key ? "text-[#142633]" : ""}`}>{label}</button>)}</nav><div className="flex items-center gap-2.5"><NotificationBell onNavigate={nav} /><button onClick={() => isAuthenticated ? nav("profile") : nav("profile")} className="hidden items-center gap-2 rounded-full border border-[#dfe5df] bg-[#fffdfa] py-1.5 pl-1.5 pr-3 text-left sm:flex"><div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#dfeae2] text-[10px] font-bold text-[#356344]">{(user?.user_metadata?.name ?? user?.email ?? "G").slice(0, 2).toUpperCase()}</div><span className="text-[11px] font-bold text-[#30433e]">{user?.user_metadata?.name ?? user?.email?.split("@")[0] ?? "Guest"}</span></button><button onClick={() => setMenuOpen(!menuOpen)} className="flex h-10 w-10 items-center justify-center rounded-full border border-[#dfe5df] bg-[#fffdfa] lg:hidden"><Menu className="h-4 w-4" /></button></div></div>{menuOpen && <div className="border-t border-[#e6e9e2] bg-[#fffdfa] px-5 py-4 lg:hidden"><div className="grid gap-1">{(( (profileQuery.data as any)?.user?.role === "admin" || (profileQuery.data as any)?.user?.role === "super_admin" ) ? [["home", "Home"], ["find", "Find a ride"], ["offer", "Offer a ride"], ["rides", "My rides"], ["profile", "Profile"], ["admin", "Admin"]] : [["home", "Home"], ["find", "Find a ride"], ["offer", "Offer a ride"], ["rides", "My rides"], ["profile", "Profile"]]).map(([key, label]) => <button key={key} onClick={() => nav(key as View)} className="rounded-xl px-3 py-3 text-left text-sm font-bold text-[#30433e] hover:bg-[#f1f4ef]">{label}</button>)}</div></div>}</header>
 
     <main className="mx-auto max-w-[1380px] px-5 pb-28 pt-7 sm:px-8 lg:ml-[210px] lg:px-12 lg:pb-14 lg:pt-10">
+      {/* ── ADMIN DASHBOARD ── */}
+      {view === "admin" && <AdminDashboard userRole={(profileQuery.data as any)?.user?.role ?? "user"} />}
       {/* ── HOME ── */}
       {view === "home" && <><section className="relative overflow-hidden rounded-[30px] bg-[#dfe9df] px-6 pb-7 pt-8 sm:px-10 sm:pb-10 lg:min-h-[390px] lg:px-14 lg:pt-14"><img src="/manus-storage/ridemate-campus-hero_51f3f445.png" alt="A campus road through the foothills" className="absolute inset-0 h-full w-full object-cover opacity-75 mix-blend-multiply" /><div className="absolute inset-0 bg-gradient-to-r from-[#dfe9df] via-[#dfe9df]/85 to-transparent" /><div className="relative max-w-[490px]"><StatusPill tone="orange"><Sparkles className="h-3 w-3" /> DBUU campus network</StatusPill><h1 className="mt-5 font-display text-[48px] font-semibold leading-[0.94] tracking-[-0.065em] text-[#142633] sm:text-[65px]">Your campus.<br /><em className="font-normal text-[#356344]">Your route.</em><br />Your ride.</h1><p className="mt-5 max-w-[365px] text-[14px] leading-6 text-[#41564c]">Share the trip you already need to make with verified students heading the same way.</p><div className="mt-7 flex flex-wrap gap-3"><button onClick={() => nav("find")} className="flex items-center gap-2 rounded-full bg-[#F06A3A] px-5 py-3.5 text-[12px] font-bold text-white shadow-[0_8px_16px_rgba(240,106,58,0.2)] transition active:scale-[0.97] hover:bg-[#d85d31]">Find a ride <ArrowRight className="h-4 w-4" /></button><button onClick={() => nav("offer")} className="flex items-center gap-2 rounded-full border border-[#718879] bg-[#eff4ec]/70 px-5 py-3.5 text-[12px] font-bold text-[#304d40] transition hover:bg-[#fffdfa]">Offer a ride <Plus className="h-4 w-4" /></button></div></div><div className="absolute bottom-6 right-8 hidden w-[240px] rounded-[20px] border border-white/70 bg-[#fffdfa]/90 p-4 shadow-[0_18px_30px_rgba(20,38,51,0.12)] backdrop-blur-sm lg:block"><div className="flex items-center justify-between"><span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#7b8982]">Next departure</span><StatusPill>Live</StatusPill></div><div className="mt-3 flex items-end justify-between"><div><div className="font-display text-[32px] font-semibold tracking-[-0.06em]">4:30</div><div className="text-[11px] font-semibold text-[#708077]">Today · open seats</div></div><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f1f4ef]"><Navigation className="h-4 w-4 text-[#F06A3A]" /></div></div><div className="mt-4 flex items-center gap-2 text-[11px] font-bold text-[#30433e]"><span>DBUU</span><div className="h-px flex-1 bg-[#bfcfc2]" /><span>Bhauwala</span></div></div></section><section className="mt-10 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]"><div className="route-sheet rounded-[25px] border border-[#dfe5df] bg-[#fffdfa] p-5 sm:p-7"><div className="flex items-start justify-between"><div><span className="eyebrow">Quick search</span><h2 className="mt-2 font-display text-[30px] font-semibold tracking-[-0.05em]">Where are you headed?</h2></div><div className="hidden rounded-2xl bg-[#f1f4ef] p-3 sm:block"><Compass className="h-5 w-5 text-[#51705e]" /></div></div><div className="mt-6 grid gap-3 sm:grid-cols-2">
   <label className="field"><span>From</span><select value={from} onChange={(event) => setFrom(event.target.value)}>{(locationsQuery.data ?? []).map((location: any) => <option key={location.id}>{location.name}</option>)}</select></label>
@@ -563,7 +561,6 @@ export default function Home() {
               
               <button
                 onClick={() => {
-                  makeAdminMutation.mutate();
                   setShowAdminDevPanel(!showAdminDevPanel);
                 }}
                 className="mt-3 block mx-auto text-[10px] text-[#718078] hover:text-[#b4c4b7] underline"

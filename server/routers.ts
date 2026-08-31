@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { publicProcedure, protectedProcedure, router } from './trpc';
+import { publicProcedure, protectedProcedure, adminProcedure, superAdminProcedure, router } from './trpc';
 import {
   searchRides, createRide, requestRideSeat, acceptRideRequest, rejectRideRequest,
   cancelRideRequest, cancelRide, completeRide, listUserRides, getRideRequests,
@@ -9,9 +9,8 @@ import {
   getNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead,
   getConfirmedContactInfo, sendChatMessage, getChatHistory, markChatRead,
   listUsersForAdmin, updateVerificationStatus, makeUserAdmin,
+  getPlatformStats, adminListAllRides, adminCancelRide, adminAddLocation, adminAddCollege, adminSendAnnouncement, superAdminUpdateRole
 } from './db';
-
-import { supabaseAdmin } from './supabaseAdmin';
 
 const rideInput = z.object({
   vehicleId: z.number().int().positive().optional(),
@@ -25,27 +24,6 @@ const rideInput = z.object({
 export const appRouter = router({
   auth: router({
     me: publicProcedure.query(({ ctx }) => ctx.user),
-    register: publicProcedure
-      .input(z.object({
-        email: z.string().email(),
-        password: z.string().min(6),
-        name: z.string().min(2),
-      }))
-      .mutation(async ({ input }) => {
-        const { data, error } = await supabaseAdmin.auth.admin.createUser({
-          email: input.email,
-          password: input.password,
-          email_confirm: true,
-          user_metadata: { name: input.name },
-        });
-        if (error) {
-          if (error.message?.includes('already') || error.status === 422) {
-            throw new TRPCError({ code: 'CONFLICT', message: 'An account with this email already exists.' });
-          }
-          throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
-        }
-        return { user: data.user };
-      }),
   }),
   locations: publicProcedure.query(() => listLocations()),
   colleges: publicProcedure.query(() => listColleges()),
@@ -63,6 +41,9 @@ export const appRouter = router({
       createRide(ctx.user.id, input)
     ),
     mine: protectedProcedure.query(({ ctx }) => listUserRides(ctx.user.id)),
+    getContactInfo: protectedProcedure
+      .input(z.object({ rideId: z.number().int().positive(), targetUserId: z.string().uuid() }))
+      .query(({ ctx, input }) => getConfirmedContactInfo(input.rideId, ctx.user.id, input.targetUserId)),
     requestSeat: protectedProcedure
       .input(z.object({ rideId: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
@@ -102,12 +83,6 @@ export const appRouter = router({
     complete: protectedProcedure
       .input(z.object({ rideId: z.number().int().positive() }))
       .mutation(({ ctx, input }) => completeRide(input.rideId, ctx.user.id)),
-    getContactInfo: protectedProcedure
-      .input(z.object({
-        rideId: z.number().int().positive(),
-        targetUserId: z.string().uuid(),
-      }))
-      .query(({ ctx, input }) => getConfirmedContactInfo(input.rideId, input.targetUserId, ctx.user.id)),
   }),
   vehicles: router({
     mine: protectedProcedure.query(({ ctx }) => listVehicles(ctx.user.id)),
@@ -146,15 +121,35 @@ export const appRouter = router({
       .mutation(({ ctx, input }) => updateUserProfile(ctx.user.id, input)),
   }),
   admin: router({
-    users: protectedProcedure.query(() => listUsersForAdmin()),
-    updateVerification: protectedProcedure
+    stats: adminProcedure.query(() => getPlatformStats()),
+    users: adminProcedure.query(() => listUsersForAdmin()),
+    updateVerification: adminProcedure
       .input(z.object({
         userId: z.string().uuid(),
         status: z.enum(['pending', 'verified', 'rejected', 'suspended']),
       }))
       .mutation(({ input }) => updateVerificationStatus(input.userId, input.status)),
-    makeAdmin: protectedProcedure
-      .mutation(({ ctx }) => makeUserAdmin(ctx.user.id)),
+    rides: adminProcedure.query(() => adminListAllRides()),
+    cancelRide: adminProcedure
+      .input(z.object({ rideId: z.number().int().positive() }))
+      .mutation(({ input }) => adminCancelRide(input.rideId)),
+    addLocation: adminProcedure
+      .input(z.object({ name: z.string().min(1).max(100), type: z.string().default('area') }))
+      .mutation(({ input }) => adminAddLocation(input.name, input.type)),
+    addCollege: adminProcedure
+      .input(z.object({ name: z.string().min(2).max(160), domain: z.string().optional(), city: z.string().optional(), state: z.string().optional() }))
+      .mutation(({ input }) => adminAddCollege(input.name, input.domain, input.city, input.state)),
+    broadcastAnnouncement: adminProcedure
+      .input(z.object({ title: z.string().min(2).max(150), message: z.string().min(2).max(1000), targetCollegeId: z.number().int().positive().optional() }))
+      .mutation(({ ctx, input }) => adminSendAnnouncement(ctx.user.id, input.title, input.message, input.targetCollegeId)),
+  }),
+  superAdmin: router({
+    updateRole: superAdminProcedure
+      .input(z.object({
+        userId: z.string().uuid(),
+        newRole: z.enum(['user', 'admin', 'super_admin']),
+      }))
+      .mutation(({ input }) => superAdminUpdateRole(input.userId, input.newRole)),
   }),
   chat: router({
     send: protectedProcedure

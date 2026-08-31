@@ -40,37 +40,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signUp = async (email: string, password: string, name: string) => {
-    try {
-      // 1. Try server-side admin creation first (auto-confirms email)
-      const res = await utils.client.auth.register.mutate({ email, password, name });
-      if (res?.user) {
-        // Log in immediately
-        const loginRes = await supabase.auth.signInWithPassword({ email, password });
-        if (loginRes.error) return { error: loginRes.error.message };
-        return { error: null };
-      }
-    } catch (e: any) {
-      if (e.message?.includes('already exists') || e.code === 'CONFLICT') {
-        return { error: 'An account with this email already exists. Please sign in.' };
-      }
-      // Fallback to standard client sign up if server endpoint fails
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { name } },
-      });
-      if (error) return { error: error.message };
-    }
-
-    // Try signing in immediately
-    const loginRes = await supabase.auth.signInWithPassword({ email, password });
-    if (loginRes.error) {
-      if (loginRes.error.message.includes('Email not confirmed')) {
-        return { error: 'Account created! Please check your email inbox to confirm, or contact admin.' };
-      }
-      return { error: loginRes.error.message };
-    }
-
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { name } },
+    });
+    if (error) return { error: error.message };
     return { error: null };
   };
 

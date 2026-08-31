@@ -11,6 +11,7 @@ dotenv.config();
 interface UserContext {
   id: string; // uuid from auth.users
   email: string;
+  role?: string;
 }
 
 export interface Context {
@@ -32,7 +33,21 @@ export async function createContext({ req }: CreateExpressContextOptions): Promi
     );
     const { data: { user }, error } = await supabase.auth.getUser(token);
     if (error || !user) return { user: null };
-    return { user: { id: user.id, email: user.email || '' } };
+
+    // Fetch user role from profiles
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email || '',
+        role: profile?.role || 'user',
+      },
+    };
   } catch {
     return { user: null };
   }
@@ -45,6 +60,20 @@ export const publicProcedure = t.procedure;
 export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
   if (!ctx.user) {
     throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Please login (10001)' });
+  }
+  return next({ ctx: { ...ctx, user: ctx.user } });
+});
+
+export const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  if (ctx.user.role !== 'admin' && ctx.user.role !== 'super_admin') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin privileges required' });
+  }
+  return next({ ctx: { ...ctx, user: ctx.user } });
+});
+
+export const superAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  if (ctx.user.role !== 'super_admin') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Super Admin privileges required' });
   }
   return next({ ctx: { ...ctx, user: ctx.user } });
 });
