@@ -18,13 +18,27 @@ describe("FindRideFilters", () => {
       const [from, setFrom] = useState("DBUU");
       const [to, setTo] = useState("Bhauwala");
       const [time, setTime] = useState("4:30 PM");
-      return <FindRideFilters locations={locations} from={from} to={to} time={time} onFromChange={setFrom} onToChange={setTo} onTimeChange={setTime} onUpdate={() => onUpdate({ from, to, time })} />;
+      const [flexibility, setFlexibility] = useState(30);
+      return (
+        <FindRideFilters
+          locations={locations}
+          from={from}
+          to={to}
+          time={time}
+          flexibility={flexibility}
+          onFromChange={setFrom}
+          onToChange={setTo}
+          onTimeChange={setTime}
+          onFlexibilityChange={setFlexibility}
+          onUpdate={() => onUpdate({ from, to, time, flexibility })}
+        />
+      );
     }
     render(<Harness />);
     fireEvent.change(screen.getByRole("combobox", { name: "Find ride origin" }), { target: { value: "Manduwala" } });
     fireEvent.change(screen.getByRole("combobox", { name: "Find ride destination" }), { target: { value: "DBUU" } });
     fireEvent.change(screen.getByRole("combobox", { name: "Find ride departure time" }), { target: { value: "6:00 PM" } });
     fireEvent.click(screen.getByRole("button", { name: "Update" }));
-    expect(onUpdate).toHaveBeenCalledWith({ from: "Manduwala", to: "DBUU", time: "6:00 PM" });
+    expect(onUpdate).toHaveBeenCalledWith({ from: "Manduwala", to: "DBUU", time: "6:00 PM", flexibility: 30 });
   });
 });

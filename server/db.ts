@@ -38,6 +38,7 @@ export async function updateUserProfile(userId: string, input: {
   course?: string | null;
   year?: string | null;
   profileImage?: string | null;
+  phoneNumber?: string | null;
 }) {
   const updateData: Record<string, unknown> = {};
   if (input.name !== undefined) updateData.name = input.name;
@@ -45,6 +46,7 @@ export async function updateUserProfile(userId: string, input: {
   if (input.course !== undefined) updateData.course = input.course;
   if (input.year !== undefined) updateData.year = input.year;
   if (input.profileImage !== undefined) updateData.profile_image = input.profileImage;
+  if (input.phoneNumber !== undefined) updateData.phone_number = input.phoneNumber;
   
   const { data, error } = await supabaseAdmin
     .from('profiles')
@@ -376,3 +378,107 @@ export async function expireOldRides() {
   if (error) { console.error('[expire-rides]', error); return 0; }
   return data || 0;
 }
+
+// ── Contact & Chat ─────────────────────────────────────
+export async function getConfirmedContactInfo(rideId: number, targetUserId: string, callerUserId: string) {
+  // First verify caller and target are confirmed participants
+  const [callerRes, targetRes] = await Promise.all([
+    isConfirmedParticipant(rideId, callerUserId),
+    isConfirmedParticipant(rideId, targetUserId),
+  ]);
+
+  if (!callerRes || !targetRes) {
+    throw new Error('NOT_AUTHORIZED_FOR_CONTACT');
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .select('name, email, phone_number')
+    .eq('id', targetUserId)
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function isConfirmedParticipant(rideId: number, userId: string): Promise<boolean> {
+  const { data: ride } = await supabaseAdmin
+    .from('rides')
+    .select('driver_id')
+    .eq('id', rideId)
+    .single();
+
+  if (ride && ride.driver_id === userId) return true;
+
+  const { data: req } = await supabaseAdmin
+    .from('ride_requests')
+    .select('id')
+    .eq('ride_id', rideId)
+    .eq('passenger_id', userId)
+    .in('status', ['accepted', 'completed'])
+    .limit(1);
+
+  return Boolean(req && req.length > 0);
+}
+
+export async function sendChatMessage(rideId: number, senderId: string, receiverId: string, message: string) {
+  const isSenderConfirmed = await isConfirmedParticipant(rideId, senderId);
+  const isReceiverConfirmed = await isConfirmedParticipant(rideId, receiverId);
+
+  if (!isSenderConfirmed || !isReceiverConfirmed) {
+    throw new Error('NOT_AUTHORIZED_FOR_CHAT');
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('chat_messages')
+    .insert({
+      ride_id: rideId,
+      sender_id: senderId,
+      receiver_id: receiverId,
+      message: message.trim(),
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  // Send notification to receiver
+  await supabaseAdmin.from('notifications').insert({
+    user_id: receiverId,
+    type: 'chat_message',
+    title: 'New ride message',
+    message: message.length > 50 ? `${message.slice(0, 47)}...` : message,
+    reference_id: rideId,
+  });
+
+  return data;
+}
+
+export async function getChatHistory(rideId: number, otherUserId: string, currentUserId: string) {
+  const isCurrentConfirmed = await isConfirmedParticipant(rideId, currentUserId);
+  if (!isCurrentConfirmed) throw new Error('NOT_AUTHORIZED_FOR_CHAT');
+
+  const { data, error } = await supabaseAdmin
+    .from('chat_messages')
+    .select('*')
+    .eq('ride_id', rideId)
+    .or(`and(sender_id.eq.${currentUserId},receiver_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},receiver_id.eq.${currentUserId})`)
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function markChatRead(rideId: number, otherUserId: string, currentUserId: string) {
+  const { error } = await supabaseAdmin
+    .from('chat_messages')
+    .update({ is_read: true })
+    .eq('ride_id', rideId)
+    .eq('sender_id', otherUserId)
+    .eq('receiver_id', currentUserId)
+    .eq('is_read', false);
+
+  if (error) throw error;
+  return { success: true };
+}
+

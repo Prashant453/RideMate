@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { trpc } from "@/lib/trpc";
 import { buildSearchWindow } from "@/lib/searchFilters";
 import { FindRideFilters } from "@/components/FindRideFilters";
+import { ChatModal } from "@/components/ChatModal";
 import {
   ArrowRight,
   Bell,
@@ -18,7 +19,9 @@ import {
   LogOut,
   MapPin,
   Menu,
+  MessageSquare,
   Navigation,
+  Phone,
   Plus,
   Search,
   Settings2,
@@ -125,9 +128,11 @@ export default function Home() {
   const [from, setFrom] = useState("DBUU");
   const [to, setTo] = useState("Bhauwala");
   const [time, setTime] = useState("4:30 PM");
+  const [flexibility, setFlexibility] = useState(30);
   const [draftFrom, setDraftFrom] = useState("DBUU");
   const [draftTo, setDraftTo] = useState("Bhauwala");
   const [draftTime, setDraftTime] = useState("4:30 PM");
+  const [draftFlexibility, setDraftFlexibility] = useState(30);
   const [searchRefreshToken, setSearchRefreshToken] = useState(0);
   const [offerFrom, setOfferFrom] = useState("DBUU");
   const [offerTo, setOfferTo] = useState("Bhauwala");
@@ -140,8 +145,13 @@ export default function Home() {
   const [profileName, setProfileName] = useState("");
   const [profileCourse, setProfileCourse] = useState("");
   const [profileYear, setProfileYear] = useState("");
+  const [profilePhone, setProfilePhone] = useState("");
   const [ridesTab, setRidesTab] = useState<RidesTab>("offered");
   const [viewingRequestsForRide, setViewingRequestsForRide] = useState<number | null>(null);
+  
+  // Real-time Chat modal state
+  const [activeChat, setActiveChat] = useState<{ rideId: number; otherUserId: string; otherUserName: string } | null>(null);
+
   // Vehicle form
   const [showAddVehicle, setShowAddVehicle] = useState(false);
   const [vType, setVType] = useState<string>("bike");
@@ -160,7 +170,7 @@ export default function Home() {
   const utils = trpc.useUtils();
   const destinationLocation = locationsQuery.data?.find((location: any) => location.name === to);
   const originLocation = locationsQuery.data?.find((location: any) => location.name === from);
-  const searchWindow = useMemo(() => buildSearchWindow(time), [time]);
+  const searchWindow = useMemo(() => buildSearchWindow(time, flexibility), [time, flexibility]);
   const backendRidesQuery = trpc.rides.search.useQuery({ originLocationId: originLocation?.id, destinationLocationId: destinationLocation?.id, ...searchWindow, refreshToken: searchRefreshToken, limit: 20, offset: 0 }, { enabled: view === "find" && Boolean(destinationLocation?.id) });
   const requestSeatMutation = trpc.rides.requestSeat.useMutation({ onSuccess: async (_: any, input: any) => { setRequestedIds((current) => Array.from(new Set([...current, input.rideId]))); toast.success("Seat request sent", { description: "The driver will see your request in their ride inbox." }); await utils.rides.search.invalidate(); }, onError: (error: any) => toast.error(error.message.includes("not available") ? "That ride is not available" : "Could not request this seat", { description: "Please refresh and try again." }) });
   const createRideMutation = trpc.rides.create.useMutation({ onSuccess: async () => { setOfferPreview(false); toast.success("Ride published", { description: "Your route is now stored for other students to discover." }); await utils.rides.mine.invalidate(); }, onError: () => toast.error("Could not publish this ride", { description: "Check the route and try again." }) });
@@ -182,9 +192,37 @@ export default function Home() {
   const deleteVehicleMutation = trpc.vehicles.delete.useMutation({ onSuccess: () => { toast.success("Vehicle removed"); utils.vehicles.mine.invalidate(); }, onError: () => toast.error("Could not remove vehicle") });
   const submitRatingMutation = trpc.ratings.submit.useMutation({ onSuccess: () => { toast.success("Rating submitted"); setRatingRideId(null); setRatingValue(0); setRatingReview(""); }, onError: () => toast.error("Could not submit rating") });
 
-  useEffect(() => { const profile = (profileQuery.data as any)?.user; if (profile) { setProfileName(profile.name ?? ""); setProfileCourse(profile.course ?? ""); setProfileYear(profile.year ?? ""); } }, [profileQuery.data]);
-  const nav = (next: View) => { if (next === "find") { setDraftFrom(from); setDraftTo(to); setDraftTime(time); } setView(next); setMenuOpen(false); setViewingRequestsForRide(null); window.scrollTo({ top: 0, behavior: "smooth" }); };
-  const applyFindFilters = () => { setFrom(draftFrom); setTo(draftTo); setTime(draftTime); setSearchRefreshToken((current) => current + 1); };
+  useEffect(() => {
+    const profile = (profileQuery.data as any)?.user;
+    if (profile) {
+      setProfileName(profile.name ?? "");
+      setProfileCourse(profile.course ?? "");
+      setProfileYear(profile.year ?? "");
+      setProfilePhone(profile.phone_number ?? "");
+    }
+  }, [profileQuery.data]);
+
+  const nav = (next: View) => {
+    if (next === "find") {
+      setDraftFrom(from);
+      setDraftTo(to);
+      setDraftTime(time);
+      setDraftFlexibility(flexibility);
+    }
+    setView(next);
+    setMenuOpen(false);
+    setViewingRequestsForRide(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const applyFindFilters = () => {
+    setFrom(draftFrom);
+    setTo(draftTo);
+    setTime(draftTime);
+    setFlexibility(draftFlexibility);
+    setSearchRefreshToken((current) => current + 1);
+  };
+
   const requireAuth = (message: string) => { toast(message, { description: "Please sign in or create an account." }); };
   const request = (id: number) => { if (!isAuthenticated) { requireAuth("Sign in to request a seat"); return; } requestSeatMutation.mutate({ rideId: id }); };
   const publishRide = () => {
@@ -212,7 +250,7 @@ export default function Home() {
       {view === "home" && <><section className="relative overflow-hidden rounded-[30px] bg-[#dfe9df] px-6 pb-7 pt-8 sm:px-10 sm:pb-10 lg:min-h-[390px] lg:px-14 lg:pt-14"><img src="/manus-storage/ridemate-campus-hero_51f3f445.png" alt="A campus road through the foothills" className="absolute inset-0 h-full w-full object-cover opacity-75 mix-blend-multiply" /><div className="absolute inset-0 bg-gradient-to-r from-[#dfe9df] via-[#dfe9df]/85 to-transparent" /><div className="relative max-w-[490px]"><StatusPill tone="orange"><Sparkles className="h-3 w-3" /> DBUU campus network</StatusPill><h1 className="mt-5 font-display text-[48px] font-semibold leading-[0.94] tracking-[-0.065em] text-[#142633] sm:text-[65px]">Your campus.<br /><em className="font-normal text-[#356344]">Your route.</em><br />Your ride.</h1><p className="mt-5 max-w-[365px] text-[14px] leading-6 text-[#41564c]">Share the trip you already need to make with verified students heading the same way.</p><div className="mt-7 flex flex-wrap gap-3"><button onClick={() => nav("find")} className="flex items-center gap-2 rounded-full bg-[#F06A3A] px-5 py-3.5 text-[12px] font-bold text-white shadow-[0_8px_16px_rgba(240,106,58,0.2)] transition active:scale-[0.97] hover:bg-[#d85d31]">Find a ride <ArrowRight className="h-4 w-4" /></button><button onClick={() => nav("offer")} className="flex items-center gap-2 rounded-full border border-[#718879] bg-[#eff4ec]/70 px-5 py-3.5 text-[12px] font-bold text-[#304d40] transition hover:bg-[#fffdfa]">Offer a ride <Plus className="h-4 w-4" /></button></div></div><div className="absolute bottom-6 right-8 hidden w-[240px] rounded-[20px] border border-white/70 bg-[#fffdfa]/90 p-4 shadow-[0_18px_30px_rgba(20,38,51,0.12)] backdrop-blur-sm lg:block"><div className="flex items-center justify-between"><span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#7b8982]">Next departure</span><StatusPill>Live</StatusPill></div><div className="mt-3 flex items-end justify-between"><div><div className="font-display text-[32px] font-semibold tracking-[-0.06em]">4:30</div><div className="text-[11px] font-semibold text-[#708077]">Today · open seats</div></div><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f1f4ef]"><Navigation className="h-4 w-4 text-[#F06A3A]" /></div></div><div className="mt-4 flex items-center gap-2 text-[11px] font-bold text-[#30433e]"><span>DBUU</span><div className="h-px flex-1 bg-[#bfcfc2]" /><span>Bhauwala</span></div></div></section><section className="mt-10 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]"><div className="route-sheet rounded-[25px] border border-[#dfe5df] bg-[#fffdfa] p-5 sm:p-7"><div className="flex items-start justify-between"><div><span className="eyebrow">Quick search</span><h2 className="mt-2 font-display text-[30px] font-semibold tracking-[-0.05em]">Where are you headed?</h2></div><div className="hidden rounded-2xl bg-[#f1f4ef] p-3 sm:block"><Compass className="h-5 w-5 text-[#51705e]" /></div></div><div className="mt-6 grid gap-3 sm:grid-cols-2"><label className="field"><span>From</span><select value={from} onChange={(event) => setFrom(event.target.value)}>{(locationsQuery.data ?? []).map((location: any) => <option key={location.id}>{location.name}</option>)}</select></label><label className="field"><span>To</span><select value={to} onChange={(event) => setTo(event.target.value)}>{(locationsQuery.data ?? []).map((location: any) => <option key={location.id}>{location.name}</option>)}</select></label><label className="field"><span>Date</span><div className="field-value"><CalendarDays className="h-4 w-4 text-[#F06A3A]" /> Today</div></label><label className="field"><span>Around</span><select value={time} onChange={(event) => setTime(event.target.value)}><option>4:30 PM</option><option>5:00 PM</option><option>6:00 PM</option></select></label></div><button onClick={() => nav("find")} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#142633] py-3.5 text-[12px] font-bold text-white transition active:scale-[0.99] hover:bg-[#253e4c]">Find matching rides <ArrowRight className="h-4 w-4" /></button></div><div className="relative overflow-hidden rounded-[25px] bg-[#142633] p-6 text-[#f7f5ef] sm:p-7"><div className="relative"><span className="eyebrow text-[#b8c9bd]">How it works</span><h2 className="mt-2 max-w-[280px] font-display text-[31px] font-semibold leading-[1] tracking-[-0.05em]">One simple route. A better way there.</h2><div className="mt-7 grid gap-4"><div className="flex gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#F06A3A] text-[11px] font-bold">1</span><div><p className="text-[12px] font-bold">Choose your route</p><p className="mt-1 text-[11px] leading-5 text-[#afc0b4]">Pick a predefined campus stop and a time window.</p></div></div><div className="flex gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#77947f] text-[11px] font-bold">2</span><div><p className="text-[12px] font-bold">See the best matches</p><p className="mt-1 text-[11px] leading-5 text-[#afc0b4]">The database filters by route, time, and open seats.</p></div></div><div className="flex gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#d5e0d5] text-[11px] font-bold text-[#142633]">3</span><div><p className="text-[12px] font-bold">Request a seat</p><p className="mt-1 text-[11px] leading-5 text-[#afc0b4]">The driver confirms and the request is stored.</p></div></div></div></div></div></section></>}
 
       {/* ── FIND ── */}
-      {view === "find" && <section className="animate-enter"><div className="mb-7 flex items-end justify-between gap-4"><div><span className="eyebrow">Find a ride</span><h1 className="mt-2 font-display text-[42px] font-semibold tracking-[-0.06em]">Rides going your way.</h1><p className="mt-2 text-[13px] text-[#718078]">{from} → {to} · Today · around {time}</p></div><button onClick={() => nav("home")} className="hidden items-center gap-1.5 text-[12px] font-bold text-[#61766b] sm:flex"><X className="h-4 w-4" /> Clear search</button></div><FindRideFilters locations={locationsQuery.data ?? []} from={draftFrom} to={draftTo} time={draftTime} updating={backendRidesQuery.isFetching} onFromChange={setDraftFrom} onToChange={setDraftTo} onTimeChange={setDraftTime} onUpdate={applyFindFilters} /><div className="flex items-center justify-between"><h2 className="font-display text-[25px] font-semibold tracking-[-0.04em]">{backendRidesQuery.isSuccess ? `${backendRides.length} nearby matches` : "Nearby matches"}</h2><span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#8a978f]">Best match first</span></div><div className="mt-4">{backendRidesQuery.isLoading && <LoadingState label="Looking across the campus route…" />}{backendRidesQuery.isError && <ErrorState label="We couldn't load rides right now." onRetry={() => void backendRidesQuery.refetch()} />}{backendRidesQuery.isSuccess && backendRides.length === 0 && <div className="rounded-[24px] border border-dashed border-[#cbd7cd] bg-[#eef4ec] p-10 text-center"><Search className="mx-auto h-6 w-6 text-[#819b8a]" /><p className="mt-3 text-[13px] font-bold text-[#43614d]">No rides on this route yet.</p><p className="mt-1 text-[11px] text-[#708077]">Offer the first ride and help someone else get home.</p><button onClick={() => nav("offer")} className="mt-4 rounded-full bg-[#F06A3A] px-4 py-2.5 text-[11px] font-bold text-white">Offer a ride <ArrowRight className="ml-1 inline h-3 w-3" /></button></div>}{backendRidesQuery.isSuccess && backendRides.length > 0 && <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{backendRides.map((ride) => <RideCard key={ride.id} ride={ride} requested={requestedIds.includes(ride.id)} onRequest={() => request(ride.id)} />)}</div>}</div></section>}
+      {view === "find" && <section className="animate-enter"><div className="mb-7 flex items-end justify-between gap-4"><div><span className="eyebrow">Find a ride</span><h1 className="mt-2 font-display text-[42px] font-semibold tracking-[-0.06em]">Rides going your way.</h1><p className="mt-2 text-[13px] text-[#718078]">{from} → {to} · Today · around {time}</p></div><button onClick={() => nav("home")} className="hidden items-center gap-1.5 text-[12px] font-bold text-[#61766b] sm:flex"><X className="h-4 w-4" /> Clear search</button></div><FindRideFilters locations={locationsQuery.data ?? []} from={draftFrom} to={draftTo} time={draftTime} flexibility={draftFlexibility} updating={backendRidesQuery.isFetching} onFromChange={setDraftFrom} onToChange={setDraftTo} onTimeChange={setDraftTime} onFlexibilityChange={setDraftFlexibility} onUpdate={applyFindFilters} /><div className="flex items-center justify-between"><h2 className="font-display text-[25px] font-semibold tracking-[-0.04em]">{backendRidesQuery.isSuccess ? `${backendRides.length} nearby matches` : "Nearby matches"}</h2><span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#8a978f]">Best match first</span></div><div className="mt-4">{backendRidesQuery.isLoading && <LoadingState label="Looking across the campus route…" />}{backendRidesQuery.isError && <ErrorState label="We couldn't load rides right now." onRetry={() => void backendRidesQuery.refetch()} />}{backendRidesQuery.isSuccess && backendRides.length === 0 && <div className="rounded-[24px] border border-dashed border-[#cbd7cd] bg-[#eef4ec] p-10 text-center"><Search className="mx-auto h-6 w-6 text-[#819b8a]" /><p className="mt-3 text-[13px] font-bold text-[#43614d]">No rides on this route yet.</p><p className="mt-1 text-[11px] text-[#708077]">Offer the first ride and help someone else get home.</p><button onClick={() => nav("offer")} className="mt-4 rounded-full bg-[#F06A3A] px-4 py-2.5 text-[11px] font-bold text-white">Offer a ride <ArrowRight className="ml-1 inline h-3 w-3" /></button></div>}{backendRidesQuery.isSuccess && backendRides.length > 0 && <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{backendRides.map((ride) => <RideCard key={ride.id} ride={ride} requested={requestedIds.includes(ride.id)} onRequest={() => request(ride.id)} />)}</div>}</div></section>}
 
       {/* ── OFFER ── */}
       {view === "offer" && <section className="animate-enter mx-auto max-w-[980px]"><div className="mb-7"><span className="eyebrow">Offer a ride</span><h1 className="mt-2 font-display text-[42px] font-semibold tracking-[-0.06em]">Put an empty seat to work.</h1><p className="mt-2 max-w-[500px] text-[13px] leading-6 text-[#718078]">Your selections are saved when you publish. Students discover the route from the database-backed search.</p></div>{!isAuthenticated ? <AuthForm onSuccess={() => {}} /> : <div className="grid gap-6 lg:grid-cols-[1fr_320px]"><div className="route-sheet rounded-[25px] border border-[#dfe5df] bg-[#fffdfa] p-5 sm:p-7"><div className="grid gap-4 sm:grid-cols-2"><label className="field"><span>From</span><select value={offerFrom} onChange={(event) => setOfferFrom(event.target.value)}>{(locationsQuery.data ?? []).map((location: any) => <option key={location.id}>{location.name}</option>)}</select></label><label className="field"><span>To</span><select value={offerTo} onChange={(event) => setOfferTo(event.target.value)}>{(locationsQuery.data ?? []).map((location: any) => <option key={location.id}>{location.name}</option>)}</select></label><label className="field"><span>Date</span><input type="date" value={offerDate} onChange={(event) => setOfferDate(event.target.value)} /></label><label className="field"><span>Departure time</span><input type="time" value={offerTime} onChange={(event) => setOfferTime(event.target.value)} /></label><label className="field"><span>Vehicle</span><select value={offerVehicleId} onChange={(event) => setOfferVehicleId(event.target.value)}><option value="">No vehicle linked</option>{(vehiclesQuery.data ?? []).map((vehicle: any) => <option key={vehicle.id} value={vehicle.id}>{vehicle.model} · {vehicle.type}</option>)}</select></label><label className="field"><span>Available seats</span><select value={offerSeats} onChange={(event) => setOfferSeats(event.target.value)}><option value="1">1 seat</option><option value="2">2 seats</option><option value="3">3 seats</option></select></label></div><label className="field mt-4"><span>Note <small>(optional)</small></span><textarea value={offerNote} onChange={(event) => setOfferNote(event.target.value)} placeholder="e.g. I can pick up near the main gate" rows={3} /></label><button onClick={() => setOfferPreview(true)} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#142633] py-3.5 text-[12px] font-bold text-white transition active:scale-[0.99] hover:bg-[#253e4c]">{offerPreview ? <><Check className="h-4 w-4" /> Preview updated</> : <>Preview your ride <ArrowRight className="h-4 w-4" /></>}</button></div><div className="route-preview"><span className="eyebrow">Preview</span><h3 className="mt-2 font-display text-[27px] font-semibold tracking-[-0.05em]">Your ride sheet</h3><div className="my-6 h-px bg-[#d7e0d7]" /><div className="flex items-center gap-3 text-[12px] font-bold"><Clock3 className="h-4 w-4 text-[#F06A3A]" /> {offerDate} · {offerTime}</div><div className="my-6 flex items-center gap-3 text-[12px] font-bold text-[#30433e]"><span className="h-2.5 w-2.5 rounded-full bg-[#F06A3A]" />{offerFrom} <ArrowRight className="h-3 w-3" /> <span className="h-2.5 w-2.5 rounded-full bg-[#356344]" />{offerTo}</div><div className="flex items-center justify-between rounded-xl bg-[#f1f4ef] px-3 py-3 text-[11px] font-bold text-[#52645b]"><span><Bike className="mr-1.5 inline h-3.5 w-3.5" /> {offerVehicleId ? "Linked vehicle" : "Vehicle to be added"}</span><span>{offerSeats} {Number(offerSeats) === 1 ? "seat" : "seats"}</span></div><button disabled={createRideMutation.isPending} onClick={publishRide} className="mt-4 w-full rounded-xl bg-[#F06A3A] py-3 text-[11px] font-bold text-white transition hover:bg-[#d85d31] disabled:cursor-not-allowed disabled:opacity-60">{createRideMutation.isPending ? "Publishing…" : "Publish ride"}</button></div></div>}</section>}
@@ -242,6 +280,14 @@ export default function Home() {
                   <button onClick={() => acceptRequestMutation.mutate({ requestId: req.id })} disabled={acceptRequestMutation.isPending} className="rounded-lg bg-[#356344] px-3 py-1.5 text-[10px] font-bold text-white">Accept</button>
                   <button onClick={() => rejectRequestMutation.mutate({ requestId: req.id })} disabled={rejectRequestMutation.isPending} className="rounded-lg bg-[#a93131] px-3 py-1.5 text-[10px] font-bold text-white">Reject</button>
                 </>}
+                {(req.status === "accepted" || req.status === "completed") && (
+                  <button
+                    onClick={() => setActiveChat({ rideId: req.ride_id, otherUserId: req.passenger_id, otherUserName: req.profiles?.name ?? "Passenger" })}
+                    className="flex items-center gap-1 rounded-lg bg-[#142633] px-3 py-1.5 text-[10px] font-bold text-white shadow-xs"
+                  >
+                    <MessageSquare className="h-3 w-3" /> Chat & Contact
+                  </button>
+                )}
               </div>
             </div>)}</div>
           </div>}
@@ -272,6 +318,14 @@ export default function Home() {
             <div className="mt-5 flex items-center justify-between border-t border-[#edf0eb] pt-4 text-[11px] text-[#748279]">
               <span>Request {req.status}</span>
               <div className="flex gap-2">
+                {(req.status === "accepted" || req.status === "completed") && (
+                  <button
+                    onClick={() => setActiveChat({ rideId: ride.id, otherUserId: ride.driver_id, otherUserName: "Driver" })}
+                    className="flex items-center gap-1 rounded-lg bg-[#142633] px-3 py-1.5 text-[10px] font-bold text-white shadow-xs"
+                  >
+                    <MessageSquare className="h-3 w-3" /> Chat & Contact
+                  </button>
+                )}
                 {(req.status === "pending" || req.status === "accepted") && <button onClick={() => cancelRequestMutation.mutate({ requestId: req.id })} className="rounded-lg bg-[#a93131] px-3 py-1.5 text-[10px] font-bold text-white">Cancel request</button>}
                 {req.status === "completed" && <button onClick={() => { setRatingRideId(ride.id); setRatingToUserId(ride.driver_id); }} className="rounded-lg bg-[#F06A3A] px-3 py-1.5 text-[10px] font-bold text-white"><Star className="mr-1 inline h-3 w-3" />Rate driver</button>}
               </div>
@@ -310,10 +364,11 @@ export default function Home() {
               <div className="flex items-start justify-between"><div><span className="eyebrow">About you</span><h2 className="mt-2 font-display text-[27px] font-semibold tracking-[-0.05em]">Keep your details current.</h2></div><Settings2 className="h-4 w-4 text-[#7b8982]" /></div>
               <div className="mt-6 grid gap-4">
                 <label className="field"><span>Name</span><input value={profileName} onChange={(event) => setProfileName(event.target.value)} placeholder="Your full name" /></label>
+                <label className="field"><span>Phone Number (for confirmed ride contact)</span><input value={profilePhone} onChange={(event) => setProfilePhone(event.target.value)} placeholder="e.g. +91 9876543210" /></label>
                 <label className="field"><span>College</span><select value={(profileQuery.data as any)?.user?.college_id ?? ""} onChange={(event) => updateProfileMutation.mutate({ collegeId: event.target.value ? Number(event.target.value) : null })}><option value="">Choose your college</option>{(collegesQuery.data ?? []).map((college: any) => <option key={college.id} value={college.id}>{college.name}</option>)}</select></label>
                 <div className="grid gap-4 sm:grid-cols-2"><label className="field"><span>Course</span><input value={profileCourse} onChange={(event) => setProfileCourse(event.target.value)} placeholder="e.g. BCA" /></label><label className="field"><span>Year / semester</span><input value={profileYear} onChange={(event) => setProfileYear(event.target.value)} placeholder="e.g. Year 2" /></label></div>
               </div>
-              <button onClick={() => updateProfileMutation.mutate({ name: profileName, course: profileCourse || null, year: profileYear || null })} disabled={updateProfileMutation.isPending} className="mt-5 w-full rounded-2xl bg-[#142633] py-3.5 text-[12px] font-bold text-white disabled:opacity-60">{updateProfileMutation.isPending ? "Saving…" : "Save profile"}</button>
+              <button onClick={() => updateProfileMutation.mutate({ name: profileName, course: profileCourse || null, year: profileYear || null, phoneNumber: profilePhone || null })} disabled={updateProfileMutation.isPending} className="mt-5 w-full rounded-2xl bg-[#142633] py-3.5 text-[12px] font-bold text-white disabled:opacity-60">{updateProfileMutation.isPending ? "Saving…" : "Save profile"}</button>
             </div>
           </div>
 
@@ -339,6 +394,17 @@ export default function Home() {
         </div>}
       </section>}
     </main>
+
+    {/* Real-time Chat Modal */}
+    {activeChat && (
+      <ChatModal
+        rideId={activeChat.rideId}
+        otherUserId={activeChat.otherUserId}
+        otherUserName={activeChat.otherUserName}
+        onClose={() => setActiveChat(null)}
+      />
+    )}
+
     <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-[#dfe5df] bg-[#fffdfa]/95 px-3 py-2.5 backdrop-blur-md lg:hidden"><div className="mx-auto flex max-w-[600px] items-center justify-around">{mobileNav("home", House, "Home")}{mobileNav("find", Search, "Find")}{mobileNav("offer", Plus, "Offer")}{mobileNav("rides", Navigation, "Rides")}{mobileNav("profile", UserRound, "Profile")}</div></nav>
   </div>;
 }

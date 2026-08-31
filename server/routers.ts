@@ -7,6 +7,7 @@ import {
   listLocations, listColleges, listVehicles, addVehicle, updateVehicle, deleteVehicle,
   getUserProfile, updateUserProfile, submitRating, getRatingsForRide,
   getNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead,
+  getConfirmedContactInfo, sendChatMessage, getChatHistory, markChatRead,
 } from './db';
 
 import { supabaseAdmin } from './supabaseAdmin';
@@ -100,6 +101,12 @@ export const appRouter = router({
     complete: protectedProcedure
       .input(z.object({ rideId: z.number().int().positive() }))
       .mutation(({ ctx, input }) => completeRide(input.rideId, ctx.user.id)),
+    getContactInfo: protectedProcedure
+      .input(z.object({
+        rideId: z.number().int().positive(),
+        targetUserId: z.string().uuid(),
+      }))
+      .query(({ ctx, input }) => getConfirmedContactInfo(input.rideId, input.targetUserId, ctx.user.id)),
   }),
   vehicles: router({
     mine: protectedProcedure.query(({ ctx }) => listVehicles(ctx.user.id)),
@@ -133,8 +140,36 @@ export const appRouter = router({
         course: z.string().max(160).nullable().optional(),
         year: z.string().max(40).nullable().optional(),
         profileImage: z.string().url().nullable().optional(),
+        phoneNumber: z.string().max(30).nullable().optional(),
       }))
       .mutation(({ ctx, input }) => updateUserProfile(ctx.user.id, input)),
+  }),
+  chat: router({
+    send: protectedProcedure
+      .input(z.object({
+        rideId: z.number().int().positive(),
+        receiverId: z.string().uuid(),
+        message: z.string().min(1).max(1000),
+      }))
+      .mutation(({ ctx, input }) =>
+        sendChatMessage(input.rideId, ctx.user.id, input.receiverId, input.message)
+      ),
+    history: protectedProcedure
+      .input(z.object({
+        rideId: z.number().int().positive(),
+        otherUserId: z.string().uuid(),
+      }))
+      .query(({ ctx, input }) =>
+        getChatHistory(input.rideId, input.otherUserId, ctx.user.id)
+      ),
+    markRead: protectedProcedure
+      .input(z.object({
+        rideId: z.number().int().positive(),
+        otherUserId: z.string().uuid(),
+      }))
+      .mutation(({ ctx, input }) =>
+        markChatRead(input.rideId, input.otherUserId, ctx.user.id)
+      ),
   }),
   ratings: router({
     submit: protectedProcedure
