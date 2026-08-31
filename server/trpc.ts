@@ -1,7 +1,12 @@
+import dotenv from 'dotenv';
+import path from 'path';
 import { initTRPC, TRPCError } from '@trpc/server';
 import type { CreateExpressContextOptions } from '@trpc/server/adapters/express';
 import { createClient } from '@supabase/supabase-js';
 import superjson from 'superjson';
+
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
+dotenv.config();
 
 interface UserContext {
   id: string; // uuid from auth.users
