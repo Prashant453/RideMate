@@ -8,6 +8,7 @@ import {
   getUserProfile, updateUserProfile, submitRating, getRatingsForRide,
   getNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead,
   getConfirmedContactInfo, sendChatMessage, getChatHistory, markChatRead,
+  listUsersForAdmin, updateVerificationStatus, makeUserAdmin,
 } from './db';
 
 import { supabaseAdmin } from './supabaseAdmin';
@@ -143,6 +144,17 @@ export const appRouter = router({
         phoneNumber: z.string().max(30).nullable().optional(),
       }))
       .mutation(({ ctx, input }) => updateUserProfile(ctx.user.id, input)),
+  }),
+  admin: router({
+    users: protectedProcedure.query(() => listUsersForAdmin()),
+    updateVerification: protectedProcedure
+      .input(z.object({
+        userId: z.string().uuid(),
+        status: z.enum(['pending', 'verified', 'rejected', 'suspended']),
+      }))
+      .mutation(({ input }) => updateVerificationStatus(input.userId, input.status)),
+    makeAdmin: protectedProcedure
+      .mutation(({ ctx }) => makeUserAdmin(ctx.user.id)),
   }),
   chat: router({
     send: protectedProcedure

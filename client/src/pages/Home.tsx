@@ -93,17 +93,17 @@ function RideCard({ ride, onRequest, requested }: { ride: DisplayRide; onRequest
 function LoadingState({ label }: { label: string }) { return <div className="rounded-[24px] border border-dashed border-[#cbd7cd] bg-[#eef4ec] p-10 text-center text-[12px] font-bold text-[#61766b]"><div className="mx-auto mb-3 h-5 w-5 animate-spin rounded-full border-2 border-[#cbd7cd] border-t-[#F06A3A]" />{label}</div>; }
 function ErrorState({ label, onRetry }: { label: string; onRetry: () => void }) { return <div className="rounded-[24px] border border-dashed border-[#efc8ba] bg-[#fff0e7] p-8 text-center"><p className="text-[12px] font-bold text-[#a94e31]">{label}</p><button onClick={onRetry} className="mt-3 rounded-full bg-[#fffdfa] px-4 py-2 text-[11px] font-bold text-[#a94e31]">Try again</button></div>; }
 
-/* ── Star rating input ── */
 function StarInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   return <div className="flex gap-1">{[1,2,3,4,5].map(s => <button key={s} onClick={() => onChange(s)} className="p-0.5"><Star className={`h-5 w-5 ${s <= value ? "fill-[#F06A3A] text-[#F06A3A]" : "text-[#cbd7cd]"}`} /></button>)}</div>;
 }
 
-/* ── Notification dropdown with Supabase Realtime & Web Push support ── */
-function NotificationBell() {
+/* ── Notification dropdown with Supabase Realtime & Navigation support ── */
+function NotificationBell({ onNavigate }: { onNavigate?: (targetView: View) => void }) {
   const { user, isAuthenticated } = useAuth();
   const [open, setOpen] = useState(false);
   const countQuery = trpc.notifications.unreadCount.useQuery(undefined, { enabled: isAuthenticated, refetchInterval: 30000 });
   const listQuery = trpc.notifications.list.useQuery(undefined, { enabled: isAuthenticated && open });
+  const markReadMutation = trpc.notifications.markRead.useMutation({ onSuccess: () => { countQuery.refetch(); listQuery.refetch(); } });
   const markAllMutation = trpc.notifications.markAllRead.useMutation({ onSuccess: () => { countQuery.refetch(); listQuery.refetch(); } });
   const count = (countQuery.data ?? 0) as number;
 
@@ -157,6 +157,18 @@ function NotificationBell() {
     };
   }, [isAuthenticated, user?.id, open, countQuery, listQuery]);
 
+  const handleNotificationClick = (n: any) => {
+    if (!n.is_read) {
+      markReadMutation.mutate({ id: n.id });
+    }
+    setOpen(false);
+    if (n.type === "new_ride") {
+      onNavigate?.("find");
+    } else {
+      onNavigate?.("rides");
+    }
+  };
+
   return <div className="relative">
     <button onClick={() => { if (!isAuthenticated) { toast("Sign in to see notifications"); return; } requestNotificationPermission(); setOpen(!open); }} aria-label="Notifications" className="relative flex h-10 w-10 items-center justify-center rounded-full border border-[#dfe5df] bg-[#fffdfa] text-[#5e7168]">
       <Bell className="h-4 w-4" />
@@ -166,7 +178,19 @@ function NotificationBell() {
       <div className="mb-2 flex items-center justify-between"><span className="text-[11px] font-bold text-[#7b8982]">Notifications</span>{count > 0 && <button onClick={() => markAllMutation.mutate()} className="text-[10px] font-bold text-[#F06A3A]">Mark all read</button>}</div>
       {listQuery.isLoading && <div className="py-4 text-center text-[11px] text-[#7b8982]">Loading…</div>}
       {listQuery.data?.length === 0 && <div className="py-4 text-center text-[11px] text-[#7b8982]">No notifications yet</div>}
-      <div className="max-h-[300px] space-y-1 overflow-y-auto">{(listQuery.data ?? []).slice(0, 10).map((n: any) => <div key={n.id} className={`rounded-xl px-3 py-2 text-[11px] ${n.is_read ? "text-[#7b8982]" : "bg-[#fff0e7] font-bold text-[#142633]"}`}><div className="font-bold">{n.title}</div><div className="mt-0.5 text-[10px] text-[#7b8982]">{n.message}</div></div>)}</div>
+      <div className="max-h-[300px] space-y-1 overflow-y-auto">{(listQuery.data ?? []).slice(0, 10).map((n: any) => (
+        <div
+          key={n.id}
+          onClick={() => handleNotificationClick(n)}
+          className={`cursor-pointer rounded-xl px-3 py-2 text-[11px] transition hover:bg-[#f1f4ef] ${n.is_read ? "text-[#7b8982]" : "bg-[#fff0e7] font-bold text-[#142633]"}`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="font-bold">{n.title}</span>
+            {!n.is_read && <span className="h-2 w-2 rounded-full bg-[#F06A3A]" />}
+          </div>
+          <div className="mt-0.5 text-[10px] text-[#7b8982]">{n.message}</div>
+        </div>
+      ))}</div>
       <button onClick={() => setOpen(false)} className="mt-2 w-full text-center text-[10px] font-bold text-[#7b8982]">Close</button>
     </div>}
   </div>;
@@ -200,6 +224,7 @@ export default function Home() {
   const [profilePhone, setProfilePhone] = useState("");
   const [ridesTab, setRidesTab] = useState<RidesTab>("offered");
   const [viewingRequestsForRide, setViewingRequestsForRide] = useState<number | null>(null);
+  const [showAdminDevPanel, setShowAdminDevPanel] = useState(false);
   
   // Real-time Chat modal state
   const [activeChat, setActiveChat] = useState<{ rideId: number; otherUserId: string; otherUserName: string } | null>(null);
@@ -242,6 +267,23 @@ export default function Home() {
   });
   const rideRequestsQuery = trpc.rides.requests.useQuery({ rideId: viewingRequestsForRide! }, { enabled: viewingRequestsForRide !== null });
 
+  // Admin Verification Queries & Mutations
+  const adminUsersQuery = trpc.admin.users.useQuery(undefined, { enabled: view === "profile" && isAuthenticated });
+  const updateVerificationMutation = trpc.admin.updateVerification.useMutation({
+    onSuccess: () => {
+      toast.success("User verification status updated!");
+      adminUsersQuery.refetch();
+      utils.profile.me.invalidate();
+    },
+    onError: (e: any) => toast.error(e.message || "Could not update verification status"),
+  });
+  const makeAdminMutation = trpc.admin.makeAdmin.useMutation({
+    onSuccess: () => {
+      toast.success("Account updated! Admin controls enabled.");
+      utils.profile.me.invalidate();
+    },
+  });
+
   // Mutations
   const acceptRequestMutation = trpc.rides.acceptRequest.useMutation({ onSuccess: () => { toast.success("Request accepted"); rideRequestsQuery.refetch(); utils.rides.mine.invalidate(); }, onError: (e: any) => toast.error(e.message || "Could not accept") });
   const rejectRequestMutation = trpc.rides.rejectRequest.useMutation({ onSuccess: () => { toast.success("Request rejected"); rideRequestsQuery.refetch(); }, onError: () => toast.error("Could not reject") });
@@ -258,9 +300,9 @@ export default function Home() {
       setProfileName(profile.name ?? "");
       setProfileCourse(profile.course ?? "");
       setProfileYear(profile.year ?? "");
-      setProfilePhone(profile.phone_number ?? "");
+      setProfilePhone((profile.phone_number ?? profile.phoneNumber ?? user?.user_metadata?.phone_number ?? "").toString());
     }
-  }, [profileQuery.data]);
+  }, [profileQuery.data, user]);
 
   // Real-time Ride Feed synchronization & Offline/Focus recovery
   useEffect(() => {
@@ -269,7 +311,7 @@ export default function Home() {
       .on(
         "postgres_changes",
         {
-          event: "*", // LISTEN TO INSERT, UPDATE, DELETE ON RIDES
+          event: "*",
           schema: "public",
           table: "rides",
         },
@@ -336,7 +378,7 @@ export default function Home() {
   const mobileNav = (key: View, Icon: typeof House, label: string) => <button onClick={() => nav(key)} className={`flex min-w-[54px] flex-col items-center gap-1 text-[9px] font-bold ${view === key ? "text-[#F06A3A]" : "text-[#859189]"}`}><span className={`flex h-8 w-8 items-center justify-center rounded-xl ${view === key ? "bg-[#fff0e7]" : ""}`}><Icon className="h-4 w-4" /></span>{label}</button>;
 
   return <div className="min-h-screen bg-[#f7f5ef] text-[#142633]">
-    <header className="wayfinding-rail sticky top-0 z-30 border-b border-[#e6e9e2]/80 bg-[#f7f5ef]/95 backdrop-blur-md"><div className="mx-auto flex h-[72px] max-w-[1380px] items-center justify-between px-5 sm:px-8 lg:px-12"><button onClick={() => nav("home")} aria-label="RideMate home"><Logo /></button><nav className="hidden items-center gap-7 text-[12px] font-bold text-[#708077] lg:flex">{[["home", "Home"], ["find", "Find a ride"], ["offer", "Offer a ride"], ["rides", "My rides"]].map(([key, label]) => <button key={key} onClick={() => nav(key as View)} className={`transition hover:text-[#142633] ${view === key ? "text-[#142633]" : ""}`}>{label}</button>)}</nav><div className="flex items-center gap-2.5"><NotificationBell /><button onClick={() => isAuthenticated ? nav("profile") : nav("profile")} className="hidden items-center gap-2 rounded-full border border-[#dfe5df] bg-[#fffdfa] py-1.5 pl-1.5 pr-3 text-left sm:flex"><div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#dfeae2] text-[10px] font-bold text-[#356344]">{(user?.user_metadata?.name ?? user?.email ?? "G").slice(0, 2).toUpperCase()}</div><span className="text-[11px] font-bold text-[#30433e]">{user?.user_metadata?.name ?? user?.email?.split("@")[0] ?? "Guest"}</span></button><button onClick={() => setMenuOpen(!menuOpen)} className="flex h-10 w-10 items-center justify-center rounded-full border border-[#dfe5df] bg-[#fffdfa] lg:hidden"><Menu className="h-4 w-4" /></button></div></div>{menuOpen && <div className="border-t border-[#e6e9e2] bg-[#fffdfa] px-5 py-4 lg:hidden"><div className="grid gap-1">{[["home", "Home"], ["find", "Find a ride"], ["offer", "Offer a ride"], ["rides", "My rides"], ["profile", "Profile"]].map(([key, label]) => <button key={key} onClick={() => nav(key as View)} className="rounded-xl px-3 py-3 text-left text-sm font-bold text-[#30433e] hover:bg-[#f1f4ef]">{label}</button>)}</div></div>}</header>
+    <header className="wayfinding-rail sticky top-0 z-30 border-b border-[#e6e9e2]/80 bg-[#f7f5ef]/95 backdrop-blur-md"><div className="mx-auto flex h-[72px] max-w-[1380px] items-center justify-between px-5 sm:px-8 lg:px-12"><button onClick={() => nav("home")} aria-label="RideMate home"><Logo /></button><nav className="hidden items-center gap-7 text-[12px] font-bold text-[#708077] lg:flex">{[["home", "Home"], ["find", "Find a ride"], ["offer", "Offer a ride"], ["rides", "My rides"]].map(([key, label]) => <button key={key} onClick={() => nav(key as View)} className={`transition hover:text-[#142633] ${view === key ? "text-[#142633]" : ""}`}>{label}</button>)}</nav><div className="flex items-center gap-2.5"><NotificationBell onNavigate={nav} /><button onClick={() => isAuthenticated ? nav("profile") : nav("profile")} className="hidden items-center gap-2 rounded-full border border-[#dfe5df] bg-[#fffdfa] py-1.5 pl-1.5 pr-3 text-left sm:flex"><div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#dfeae2] text-[10px] font-bold text-[#356344]">{(user?.user_metadata?.name ?? user?.email ?? "G").slice(0, 2).toUpperCase()}</div><span className="text-[11px] font-bold text-[#30433e]">{user?.user_metadata?.name ?? user?.email?.split("@")[0] ?? "Guest"}</span></button><button onClick={() => setMenuOpen(!menuOpen)} className="flex h-10 w-10 items-center justify-center rounded-full border border-[#dfe5df] bg-[#fffdfa] lg:hidden"><Menu className="h-4 w-4" /></button></div></div>{menuOpen && <div className="border-t border-[#e6e9e2] bg-[#fffdfa] px-5 py-4 lg:hidden"><div className="grid gap-1">{[["home", "Home"], ["find", "Find a ride"], ["offer", "Offer a ride"], ["rides", "My rides"], ["profile", "Profile"]].map(([key, label]) => <button key={key} onClick={() => nav(key as View)} className="rounded-xl px-3 py-3 text-left text-sm font-bold text-[#30433e] hover:bg-[#f1f4ef]">{label}</button>)}</div></div>}</header>
 
     <main className="mx-auto max-w-[1380px] px-5 pb-28 pt-7 sm:px-8 lg:ml-[210px] lg:px-12 lg:pb-14 lg:pt-10">
       {/* ── HOME ── */}
@@ -503,9 +545,33 @@ export default function Home() {
               <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full border-4 border-[#F06A3A] bg-[#dfeae2] text-2xl font-bold text-[#356344]">{(profileName || user?.user_metadata?.name || user?.email || "G").slice(0, 2).toUpperCase()}</div>
               <h2 className="mt-4 font-display text-[24px] font-semibold tracking-[-0.04em]">{profileName || user?.user_metadata?.name || "RideMate student"}</h2>
               <p className="mt-1 text-[11px] text-[#b4c4b7]">{(profileQuery.data as any)?.college?.name ?? "College not set"}</p>
-              <div className="mt-5 flex justify-center"><StatusPill tone="blue"><ShieldCheck className="h-3 w-3" /> {(profileQuery.data as any)?.user?.verification_status ?? "pending"}</StatusPill></div>
+              
+              {/* Dynamic Verification Badge */}
+              {(() => {
+                const status = ((profileQuery.data as any)?.user?.verification_status ?? "pending").toLowerCase();
+                const tone = status === "verified" ? "green" : status === "pending" ? "orange" : "red";
+                return (
+                  <div className="mt-5 flex justify-center">
+                    <StatusPill tone={tone}>
+                      <ShieldCheck className="h-3.5 w-3.5" /> {status.toUpperCase()}
+                    </StatusPill>
+                  </div>
+                );
+              })()}
+
               <button onClick={() => void logout()} className="mt-5 flex items-center gap-1.5 mx-auto text-[11px] font-bold text-[#b4c4b7] underline underline-offset-4"><LogOut className="h-3 w-3" />Sign out</button>
+              
+              <button
+                onClick={() => {
+                  makeAdminMutation.mutate();
+                  setShowAdminDevPanel(!showAdminDevPanel);
+                }}
+                className="mt-3 block mx-auto text-[10px] text-[#718078] hover:text-[#b4c4b7] underline"
+              >
+                {showAdminDevPanel ? "Hide Admin Review Panel" : "Admin Review Panel"}
+              </button>
             </div>
+            
             <div className="route-sheet rounded-[25px] border border-[#dfe5df] bg-[#fffdfa] p-5 sm:p-7">
               <div className="flex items-start justify-between"><div><span className="eyebrow">About you</span><h2 className="mt-2 font-display text-[27px] font-semibold tracking-[-0.05em]">Keep your details current.</h2></div><Settings2 className="h-4 w-4 text-[#7b8982]" /></div>
               <div className="mt-6 grid gap-4">
@@ -517,6 +583,49 @@ export default function Home() {
               <button onClick={() => updateProfileMutation.mutate({ name: profileName, course: profileCourse || null, year: profileYear || null, phoneNumber: profilePhone || null })} disabled={updateProfileMutation.isPending} className="mt-5 w-full rounded-2xl bg-[#142633] py-3.5 text-[12px] font-bold text-white disabled:opacity-60">{updateProfileMutation.isPending ? "Saving…" : "Save profile"}</button>
             </div>
           </div>
+
+          {/* Admin Verification Review Panel */}
+          {((profileQuery.data as any)?.user?.role === "admin" || showAdminDevPanel) && (
+            <div className="route-sheet rounded-[25px] border border-[#F06A3A]/40 bg-[#fffdfa] p-5 sm:p-7">
+              <div className="flex items-start justify-between">
+                <div>
+                  <span className="eyebrow text-[#F06A3A]">Admin Panel</span>
+                  <h2 className="mt-2 font-display text-[27px] font-semibold tracking-[-0.05em]">Student Verification Review</h2>
+                </div>
+                <ShieldCheck className="h-5 w-5 text-[#F06A3A]" />
+              </div>
+              <div className="mt-4 grid gap-3">
+                {(adminUsersQuery.data ?? []).map((u: any) => (
+                  <div key={u.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#f1f4ef] p-3 text-[12px]">
+                    <div>
+                      <div className="font-bold text-[#142633]">{u.name || "Student"} <span className="text-[10px] font-normal text-[#7b8982]">({u.email})</span></div>
+                      <div className="text-[10px] text-[#7b8982]">{u.colleges?.name ?? "College not set"} · Status: <span className="font-bold uppercase text-[#142633]">{u.verification_status}</span></div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => updateVerificationMutation.mutate({ userId: u.id, status: "verified" })}
+                        className="rounded-lg bg-[#356344] px-2.5 py-1 text-[10px] font-bold text-white shadow-xs"
+                      >
+                        Verify / Approve
+                      </button>
+                      <button
+                        onClick={() => updateVerificationMutation.mutate({ userId: u.id, status: "pending" })}
+                        className="rounded-lg bg-[#F06A3A] px-2.5 py-1 text-[10px] font-bold text-white shadow-xs"
+                      >
+                        Set Pending
+                      </button>
+                      <button
+                        onClick={() => updateVerificationMutation.mutate({ userId: u.id, status: "rejected" })}
+                        className="rounded-lg bg-[#a93131] px-2.5 py-1 text-[10px] font-bold text-white shadow-xs"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Vehicles section */}
           <div className="route-sheet rounded-[25px] border border-[#dfe5df] bg-[#fffdfa] p-5 sm:p-7">

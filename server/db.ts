@@ -23,31 +23,40 @@ export async function listColleges() {
 
 // ── Profile ───────────────────────────────────────────
 export async function getUserProfile(userId: string) {
-  const { data, error } = await supabaseAdmin
-    .from('profiles')
-    .select('*, colleges(*)')
-    .eq('id', userId)
-    .single();
+  const [{ data, error }, { data: userAuth }] = await Promise.all([
+    supabaseAdmin.from('profiles').select('*, colleges(*)').eq('id', userId).single(),
+    supabaseAdmin.auth.admin.getUserById(userId),
+  ]);
 
   if (error && error.code !== 'PGRST116') throw error;
 
+  const authMetaPhone = userAuth?.user?.user_metadata?.phone_number || null;
+  const authMetaName = userAuth?.user?.user_metadata?.name || null;
+
   if (!data) {
-    // If profile row doesn't exist yet, auto-create initial profile for authenticated user
-    const { data: userAuth } = await supabaseAdmin.auth.admin.getUserById(userId);
     const email = userAuth?.user?.email || '';
-    const name = userAuth?.user?.user_metadata?.name || email.split('@')[0] || 'Student';
+    const name = authMetaName || email.split('@')[0] || 'Student';
     
     const { data: newProfile, error: upsertErr } = await supabaseAdmin
       .from('profiles')
-      .upsert({ id: userId, email, name, verification_status: 'pending' }, { onConflict: 'id' })
+      .upsert({ id: userId, email, name, verification_status: 'pending', phone_number: authMetaPhone }, { onConflict: 'id' })
       .select('*, colleges(*)')
       .single();
 
     if (upsertErr) throw upsertErr;
-    return { user: newProfile, college: newProfile.colleges };
+    return {
+      user: { ...newProfile, phone_number: newProfile.phone_number || authMetaPhone },
+      college: newProfile.colleges,
+    };
   }
 
-  return { user: data, college: data.colleges };
+  // Merge phone_number from profile or auth metadata if column wasn't fetched
+  const mergedUser = {
+    ...data,
+    phone_number: data.phone_number || authMetaPhone,
+  };
+
+  return { user: mergedUser, college: data.colleges };
 }
 
 export async function updateUserProfile(userId: string, input: {
@@ -76,6 +85,15 @@ export async function updateUserProfile(userId: string, input: {
   delete updateData.rating;
   delete updateData.total_rides;
 
+  // Dual backup: update auth user metadata as well
+  const userMetadataUpdates: Record<string, unknown> = {};
+  if (input.phoneNumber !== undefined) userMetadataUpdates.phone_number = input.phoneNumber;
+  if (input.name !== undefined && input.name !== null) userMetadataUpdates.name = input.name;
+  
+  if (Object.keys(userMetadataUpdates).length > 0) {
+    await supabaseAdmin.auth.admin.updateUserById(userId, { user_metadata: userMetadataUpdates }).catch(() => {});
+  }
+
   let { data, error } = await supabaseAdmin
     .from('profiles')
     .upsert(updateData, { onConflict: 'id' })
@@ -83,7 +101,6 @@ export async function updateUserProfile(userId: string, input: {
     .single();
 
   if (error && (error.message?.includes("phone_number") || error.code === 'PGRST204')) {
-    // If phone_number column is missing in DB schema cache, retry update without phone_number
     delete updateData.phone_number;
     const retryRes = await supabaseAdmin
       .from('profiles')
@@ -91,9 +108,46 @@ export async function updateUserProfile(userId: string, input: {
       .select('*, colleges(*)')
       .single();
     if (retryRes.error) throw retryRes.error;
-    return retryRes.data;
+    data = retryRes.data;
+  } else if (error) {
+    throw error;
   }
 
+  return {
+    ...data,
+    phone_number: data?.phone_number || input.phoneNumber || null,
+  };
+}
+
+// ── Admin Verification Functions ──────────────────────────────
+export async function listUsersForAdmin() {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .select('*, colleges(name)')
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return data || [];
+}
+
+export async function updateVerificationStatus(targetUserId: string, status: 'pending' | 'verified' | 'rejected' | 'suspended') {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .update({ verification_status: status, updated_at: new Date().toISOString() })
+    .eq('id', targetUserId)
+    .select('*, colleges(*)')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function makeUserAdmin(userId: string) {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .update({ role: 'admin' })
+    .eq('id', userId)
+    .select()
+    .single();
   if (error) throw error;
   return data;
 }
