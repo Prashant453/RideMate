@@ -18,7 +18,25 @@ async function startServer() {
 
   app.use(express.json());
 
-  // Mount tRPC
+  // CORS Middleware for Vercel Frontend + Render Backend
+  app.use((req, res, next) => {
+    const origin = req.headers.origin || '*';
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
+  // Health check endpoint for Render monitoring
+  app.get('/api/health', (_req, res) => {
+    res.json({ status: 'ok', service: 'ridemate-backend', timestamp: new Date().toISOString() });
+  });
+
+  // Mount tRPC API
   app.use('/api/trpc', trpcExpress.createExpressMiddleware({
     router: appRouter,
     createContext,
@@ -33,11 +51,14 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // Production: serve built static files
+    // Production: serve built static files if client is colocated
     const staticPath = path.resolve(__dirname, 'public');
     app.use(express.static(staticPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(staticPath, 'index.html'));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api/')) return next();
+      res.sendFile(path.join(staticPath, 'index.html'), (err) => {
+        if (err) next();
+      });
     });
   }
 
@@ -56,7 +77,7 @@ async function startServer() {
 
   const port = process.env.PORT || 3000;
   server.listen(port, () => {
-    console.log(`RideMate server running on http://localhost:${port}/`);
+    console.log(`RideMate server running on port ${port}`);
   });
 }
 

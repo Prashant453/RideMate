@@ -27,10 +27,12 @@ queryClient.getMutationCache().subscribe(event => {
   }
 });
 
+const serverUrl = import.meta.env.VITE_SERVER_URL || "";
+
 const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
-      url: "/api/trpc",
+      url: `${serverUrl}/api/trpc`,
       transformer: superjson,
       async headers() {
         // Send the Supabase JWT as Bearer token for server-side auth
