@@ -2,7 +2,7 @@ services:
   - type: web
     name: ridemate-backend
     env: node
-    buildCommand: npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
