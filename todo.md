@@ -1,0 +1,21 @@
+# RideMate Persistence Upgrade
+
+- [x] Read the full-stack project guidance and inspect the current scaffold.
+- [x] Add the database and backend/user scaffolding.
+- [x] Define relational models for colleges, campuses, locations, profiles, vehicles, rides, requests, ratings, and notifications.
+- [x] Connect the frontend ride flows to persistent backend data.
+- [x] Verify authorization, seat availability, error handling, and persistence across reloads.
+- [x] Save a checkpoint and report the upgrade and any required follow-up configuration.
+- [x] Wire the Offer Ride form to submit the selected route, time, seats, vehicle, and note values, and make Publish persist the ride.
+- [x] Remove hardcoded ride fallback data from Find Ride and load backend results with loading, empty, and error states.
+- [x] Connect My Rides and Profile screens to persistent tRPC queries and mutations.
+- [x] Add verification coverage for DB-backed persistence and seat reservation behavior.
+- [x] Add DB-backed verification that creating a ride persists to the database and appears after a re-query.
+- [x] Add seat-reservation tests that confirm atomic decrement and clean failure when no seats remain.
+- [x] Fix Find a Ride Update button so selected route and time filters refresh the persistent ride search.
+- [x] Add regression coverage for the Find a Ride refresh interaction and verify the corrected UI.
+- [x] Add a regression test for the Find results-screen controls and Update-triggered refetch using the current route/time filters.
+- [x] Explicitly verify the Find view interaction: navigate to Find a Ride, change filters, click Update, and confirm the refreshed state.
+- [x] Include the FindRideFilters JSX regression test in Vitest and verify it runs.
+- [x] Change Find a Ride filters to use draft values that apply only when Update is clicked, with a distinct refresh token for repeated refreshes.
+- [x] Re-run direct browser verification and confirm filter changes stay pending until Update, then show the refreshed state.
