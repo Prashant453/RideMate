@@ -28,8 +28,26 @@ export async function getUserProfile(userId: string) {
     .select('*, colleges(*)')
     .eq('id', userId)
     .single();
+
   if (error && error.code !== 'PGRST116') throw error;
-  return data ? { user: data, college: data.colleges } : undefined;
+
+  if (!data) {
+    // If profile row doesn't exist yet, auto-create initial profile for authenticated user
+    const { data: userAuth } = await supabaseAdmin.auth.admin.getUserById(userId);
+    const email = userAuth?.user?.email || '';
+    const name = userAuth?.user?.user_metadata?.name || email.split('@')[0] || 'Student';
+    
+    const { data: newProfile, error: upsertErr } = await supabaseAdmin
+      .from('profiles')
+      .upsert({ id: userId, email, name, verification_status: 'pending' }, { onConflict: 'id' })
+      .select('*, colleges(*)')
+      .single();
+
+    if (upsertErr) throw upsertErr;
+    return { user: newProfile, college: newProfile.colleges };
+  }
+
+  return { user: data, college: data.colleges };
 }
 
 export async function updateUserProfile(userId: string, input: {
@@ -40,7 +58,11 @@ export async function updateUserProfile(userId: string, input: {
   profileImage?: string | null;
   phoneNumber?: string | null;
 }) {
-  const updateData: Record<string, unknown> = {};
+  const updateData: Record<string, unknown> = {
+    id: userId,
+    updated_at: new Date().toISOString(),
+  };
+
   if (input.name !== undefined) updateData.name = input.name;
   if (input.collegeId !== undefined) updateData.college_id = input.collegeId;
   if (input.course !== undefined) updateData.course = input.course;
@@ -48,12 +70,18 @@ export async function updateUserProfile(userId: string, input: {
   if (input.profileImage !== undefined) updateData.profile_image = input.profileImage;
   if (input.phoneNumber !== undefined) updateData.phone_number = input.phoneNumber;
   
+  // Security protection: NEVER allow modifying system fields from profile update
+  delete updateData.verification_status;
+  delete updateData.role;
+  delete updateData.rating;
+  delete updateData.total_rides;
+
   const { data, error } = await supabaseAdmin
     .from('profiles')
-    .update(updateData)
-    .eq('id', userId)
-    .select()
+    .upsert(updateData, { onConflict: 'id' })
+    .select('*, colleges(*)')
     .single();
+
   if (error) throw error;
   return data;
 }

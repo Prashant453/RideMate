@@ -179,7 +179,15 @@ export default function Home() {
   const mineQuery = trpc.rides.mine.useQuery(undefined, { enabled: view === "rides" && isAuthenticated });
   const vehiclesQuery = trpc.vehicles.mine.useQuery(undefined, { enabled: (view === "offer" || view === "profile") && isAuthenticated });
   const profileQuery = trpc.profile.me.useQuery(undefined, { enabled: view === "profile" && isAuthenticated });
-  const updateProfileMutation = trpc.profile.update.useMutation({ onSuccess: async () => { toast.success("Profile saved"); await utils.profile.me.invalidate(); }, onError: () => toast.error("Could not save profile") });
+  const updateProfileMutation = trpc.profile.update.useMutation({
+    onSuccess: async () => {
+      toast.success("Profile saved successfully!");
+      await utils.profile.me.invalidate();
+    },
+    onError: (error: any) => {
+      toast.error(error.message || "Failed to save profile. Please try again.");
+    },
+  });
   const rideRequestsQuery = trpc.rides.requests.useQuery({ rideId: viewingRequestsForRide! }, { enabled: viewingRequestsForRide !== null });
 
   // Mutations
