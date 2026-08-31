@@ -76,11 +76,23 @@ export async function updateUserProfile(userId: string, input: {
   delete updateData.rating;
   delete updateData.total_rides;
 
-  const { data, error } = await supabaseAdmin
+  let { data, error } = await supabaseAdmin
     .from('profiles')
     .upsert(updateData, { onConflict: 'id' })
     .select('*, colleges(*)')
     .single();
+
+  if (error && (error.message?.includes("phone_number") || error.code === 'PGRST204')) {
+    // If phone_number column is missing in DB schema cache, retry update without phone_number
+    delete updateData.phone_number;
+    const retryRes = await supabaseAdmin
+      .from('profiles')
+      .upsert(updateData, { onConflict: 'id' })
+      .select('*, colleges(*)')
+      .single();
+    if (retryRes.error) throw retryRes.error;
+    return retryRes.data;
+  }
 
   if (error) throw error;
   return data;
