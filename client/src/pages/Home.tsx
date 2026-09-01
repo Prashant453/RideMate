@@ -191,10 +191,18 @@ function CallButton({ rideId, targetUserId }: { rideId: number; targetUserId: st
     );
   }
 
+  if (contactQuery.error) {
+    return (
+      <button onClick={() => toast.error(contactQuery.error?.message || "Failed to fetch contact")} className="flex items-center gap-1 rounded-lg bg-[#e3ede1] px-3 py-1.5 text-[10px] font-bold text-[#a93131]">
+        <Phone className="h-3 w-3" /> Error
+      </button>
+    );
+  }
+
   const phone = contactQuery.data?.phone_number;
   if (!phone) {
     return (
-      <button onClick={() => toast.info("No phone number saved.")} className="flex items-center gap-1 rounded-lg bg-[#e3ede1] px-3 py-1.5 text-[10px] font-bold text-[#356344]">
+      <button onClick={() => toast.info("The other person hasn't added a phone number.")} className="flex items-center gap-1 rounded-lg bg-[#e3ede1] px-3 py-1.5 text-[10px] font-bold text-[#356344]">
         <Phone className="h-3 w-3" /> No Phone
       </button>
     );
