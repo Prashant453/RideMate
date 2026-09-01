@@ -61,6 +61,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
+    try {
+      if ('serviceWorker' in navigator && 'PushManager' in window) {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (subscription) {
+          await subscription.unsubscribe();
+          await supabase.from('push_subscriptions').delete().eq('endpoint', subscription.endpoint);
+        }
+      }
+    } catch (err) {
+      console.error('Error removing push subscription during logout', err);
+    }
     await supabase.auth.signOut();
   };
 

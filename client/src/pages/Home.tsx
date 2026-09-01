@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { trpc } from "@/lib/trpc";
 import { supabase } from "@/lib/supabase";
 import { buildSearchWindow } from "@/lib/searchFilters";
@@ -98,7 +99,7 @@ function StarInput({ value, onChange }: { value: number; onChange: (v: number) =
   return <div className="flex gap-1">{[1,2,3,4,5].map(s => <button key={s} onClick={() => onChange(s)} className="p-0.5"><Star className={`h-5 w-5 ${s <= value ? "fill-[#F06A3A] text-[#F06A3A]" : "text-[#cbd7cd]"}`} /></button>)}</div>;
 }
 
-/* ── Notification dropdown with Supabase Realtime & Navigation support ── */
+/* 🔔 Notification dropdown with Supabase Realtime & Navigation support 🔔 */
 function NotificationBell({ onNavigate }: { onNavigate?: (targetView: View) => void }) {
   const { user, isAuthenticated } = useAuth();
   const [open, setOpen] = useState(false);
@@ -107,22 +108,8 @@ function NotificationBell({ onNavigate }: { onNavigate?: (targetView: View) => v
   const markReadMutation = trpc.notifications.markRead.useMutation({ onSuccess: () => { countQuery.refetch(); listQuery.refetch(); } });
   const markAllMutation = trpc.notifications.markAllRead.useMutation({ onSuccess: () => { countQuery.refetch(); listQuery.refetch(); } });
   const count = (countQuery.data ?? 0) as number;
-
-  const requestNotificationPermission = () => {
-    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => {});
-    }
-  };
-
-  const triggerBrowserPush = (title: string, message: string) => {
-    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-      try {
-        new Notification(title, { body: message, icon: "/favicon.ico" });
-      } catch {
-        // Ignored if browser policy blocks sync Notification constructor
-      }
-    }
-  };
+  
+  const { isSupported, permission, isSubscribed, subscribe } = usePushNotifications();
 
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return;
@@ -146,8 +133,6 @@ function NotificationBell({ onNavigate }: { onNavigate?: (targetView: View) => v
             toast.info(newNotif.title || "Notification", {
               description: newNotif.message,
             });
-
-            triggerBrowserPush(newNotif.title || "RideMate Notification", newNotif.message || "");
           }
         }
       )
@@ -156,45 +141,42 @@ function NotificationBell({ onNavigate }: { onNavigate?: (targetView: View) => v
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [isAuthenticated, user?.id, open, countQuery, listQuery]);
+  }, [isAuthenticated, user?.id, open]);
 
   const handleNotificationClick = (n: any) => {
     if (!n.is_read) {
       markReadMutation.mutate({ id: n.id });
     }
     setOpen(false);
-    if (n.type === "new_ride") {
-      onNavigate?.("find");
-    } else {
-      onNavigate?.("rides");
+    if (onNavigate && n.reference_id) {
+      onNavigate("rides");
     }
   };
 
-  return <div className="relative">
-    <button onClick={() => { if (!isAuthenticated) { toast("Sign in to see notifications"); return; } requestNotificationPermission(); setOpen(!open); }} aria-label="Notifications" className="relative flex h-10 w-10 items-center justify-center rounded-full border border-[#dfe5df] bg-[#fffdfa] text-[#5e7168]">
-      <Bell className="h-4 w-4" />
-      {count > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#F06A3A] px-1 text-[9px] font-bold text-white">{count > 9 ? "9+" : count}</span>}
-    </button>
-    {open && <div className="absolute right-0 top-12 z-50 w-[320px] rounded-2xl border border-[#dfe5df] bg-[#fffdfa] p-3 shadow-xl">
-      <div className="mb-2 flex items-center justify-between"><span className="text-[11px] font-bold text-[#7b8982]">Notifications</span>{count > 0 && <button onClick={() => markAllMutation.mutate()} className="text-[10px] font-bold text-[#F06A3A]">Mark all read</button>}</div>
-      {listQuery.isLoading && <div className="py-4 text-center text-[11px] text-[#7b8982]">Loading…</div>}
-      {listQuery.data?.length === 0 && <div className="py-4 text-center text-[11px] text-[#7b8982]">No notifications yet</div>}
-      <div className="max-h-[300px] space-y-1 overflow-y-auto">{(listQuery.data ?? []).slice(0, 10).map((n: any) => (
-        <div
-          key={n.id}
-          onClick={() => handleNotificationClick(n)}
-          className={`cursor-pointer rounded-xl px-3 py-2 text-[11px] transition hover:bg-[#f1f4ef] ${n.is_read ? "text-[#7b8982]" : "bg-[#fff0e7] font-bold text-[#142633]"}`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="font-bold">{n.title}</span>
-            {!n.is_read && <span className="h-2 w-2 rounded-full bg-[#F06A3A]" />}
+  return (
+    <div className="relative">
+      <button onClick={() => { 
+        if (!isAuthenticated) { toast("Sign in to see notifications"); return; } 
+        if (isSupported && !isSubscribed && permission === 'default') { subscribe(); }
+        setOpen(!open); 
+      }} aria-label="Notifications" className="relative flex h-10 w-10 items-center justify-center rounded-full border border-[#dfe5df] bg-[#fffdfa] text-[#5e7168]">
+        <Bell className="h-4 w-4" />
+        {count > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#F06A3A] px-1 text-[9px] font-bold text-white">{count > 9 ? "9+" : count}</span>}
+      </button>
+      {open && <div className="absolute right-0 top-12 z-50 w-[320px] rounded-2xl border border-[#dfe5df] bg-[#fffdfa] p-3 shadow-xl">
+        <div className="mb-2 flex items-center justify-between"><span className="text-[11px] font-bold text-[#7b8982]">Notifications</span>{count > 0 && <button onClick={() => markAllMutation.mutate()} className="text-[10px] font-bold text-[#F06A3A]">Mark all read</button>}</div>
+        {listQuery.isLoading && <div className="py-4 text-center text-[11px] text-[#7b8982]">Loading…</div>}
+        {listQuery.data?.length === 0 && <div className="py-4 text-center text-[11px] text-[#7b8982]">No notifications yet</div>}
+        <div className="max-h-[300px] space-y-1 overflow-y-auto">{(listQuery.data ?? []).slice(0, 10).map((n: any) => (
+          <div key={n.id} onClick={() => handleNotificationClick(n)} className={`cursor-pointer rounded-xl px-3 py-2 text-[11px] transition hover:bg-[#f1f4ef] ${n.is_read ? "text-[#7b8982]" : "bg-[#fff0e7] font-bold text-[#142633]"}`}>
+            <div className="flex items-center justify-between"><span className="font-bold">{n.title}</span>{!n.is_read && <span className="h-2 w-2 rounded-full bg-[#F06A3A]" />}</div>
+            <div className="mt-0.5 text-[10px] text-[#7b8982]">{n.message}</div>
           </div>
-          <div className="mt-0.5 text-[10px] text-[#7b8982]">{n.message}</div>
-        </div>
-      ))}</div>
-      <button onClick={() => setOpen(false)} className="mt-2 w-full text-center text-[10px] font-bold text-[#7b8982]">Close</button>
-    </div>}
-  </div>;
+        ))}</div>
+        <button onClick={() => setOpen(false)} className="mt-2 w-full text-center text-[10px] font-bold text-[#7b8982]">Close</button>
+      </div>}
+    </div>
+  );
 }
 
 export default function Home() {
