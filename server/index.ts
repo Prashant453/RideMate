@@ -44,35 +44,28 @@ async function startServer() {
     createContext,
   }));
 
-  if (process.env.NODE_ENV === 'development') {
-    // Development only: use Vite dev server as middleware
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
+  // Serve static client assets if available
+  const staticPath = path.resolve(__dirname, 'public');
+  const distPublicPath = path.resolve(process.cwd(), 'dist', 'public');
+  const clientPath = fs.existsSync(staticPath) ? staticPath : (fs.existsSync(distPublicPath) ? distPublicPath : null);
+
+  if (clientPath) {
+    app.use(express.static(clientPath));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api/')) return next();
+      res.sendFile(path.join(clientPath, 'index.html'), (err) => {
+        if (err) next();
+      });
     });
-    app.use(vite.middlewares);
   } else {
-    // Production: serve built static files if client is colocated
-    const staticPath = path.resolve(__dirname, 'public');
-    if (fs.existsSync(staticPath)) {
-      app.use(express.static(staticPath));
-      app.get('*', (req, res, next) => {
-        if (req.path.startsWith('/api/')) return next();
-        res.sendFile(path.join(staticPath, 'index.html'), (err) => {
-          if (err) next();
-        });
+    app.get('/', (_req, res) => {
+      res.json({
+        service: 'RideMate Backend API',
+        status: 'online',
+        health: '/api/health',
+        trpc: '/api/trpc',
       });
-    } else {
-      app.get('/', (_req, res) => {
-        res.json({
-          service: 'RideMate Backend API',
-          status: 'online',
-          health: '/api/health',
-          trpc: '/api/trpc',
-        });
-      });
-    }
+    });
   }
 
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
