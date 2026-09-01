@@ -1,9 +1,11 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
+dotenv.config();
 
 import express from 'express';
 import { createServer } from 'http';
@@ -33,7 +35,7 @@ async function startServer() {
 
   // Health check endpoint for Render monitoring
   app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok', service: 'ridemate-backend', timestamp: new Date().toISOString() });
+    res.status(200).json({ status: 'ok', service: 'ridemate-backend', timestamp: new Date().toISOString() });
   });
 
   // Mount tRPC API
@@ -42,8 +44,8 @@ async function startServer() {
     createContext,
   }));
 
-  if (process.env.NODE_ENV !== 'production') {
-    // Development: use Vite dev server as middleware
+  if (process.env.NODE_ENV === 'development') {
+    // Development only: use Vite dev server as middleware
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -53,16 +55,36 @@ async function startServer() {
   } else {
     // Production: serve built static files if client is colocated
     const staticPath = path.resolve(__dirname, 'public');
-    app.use(express.static(staticPath));
-    app.get('*', (req, res, next) => {
-      if (req.path.startsWith('/api/')) return next();
-      res.sendFile(path.join(staticPath, 'index.html'), (err) => {
-        if (err) next();
+    if (fs.existsSync(staticPath)) {
+      app.use(express.static(staticPath));
+      app.get('*', (req, res, next) => {
+        if (req.path.startsWith('/api/')) return next();
+        res.sendFile(path.join(staticPath, 'index.html'), (err) => {
+          if (err) next();
+        });
       });
-    });
+    } else {
+      app.get('/', (_req, res) => {
+        res.json({
+          service: 'RideMate Backend API',
+          status: 'online',
+          health: '/api/health',
+          trpc: '/api/trpc',
+        });
+      });
+    }
   }
 
-  // Expire old rides every 15 minutes
+  const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  server.listen(port, '0.0.0.0', () => {
+    console.log(`RideMate server running on http://0.0.0.0:${port}`);
+  });
+
+  // Expire old rides in background after server is up
+  setTimeout(() => {
+    expireOldRides().catch(e => console.error('[expire-rides] Startup error:', e));
+  }, 5000);
+
   setInterval(async () => {
     try {
       const count = await expireOldRides();
@@ -71,14 +93,6 @@ async function startServer() {
       console.error('[expire-rides] Error:', e);
     }
   }, 15 * 60 * 1000);
-
-  // Also expire on startup
-  expireOldRides().catch(e => console.error('[expire-rides] Startup error:', e));
-
-  const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-  server.listen(port, '0.0.0.0', () => {
-    console.log(`RideMate server running on http://0.0.0.0:${port}`);
-  });
 }
 
 startServer().catch((err) => {
