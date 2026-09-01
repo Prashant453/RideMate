@@ -75,10 +75,13 @@ async function startServer() {
   // Also expire on startup
   expireOldRides().catch(e => console.error('[expire-rides] Startup error:', e));
 
-  const port = process.env.PORT || 3000;
-  server.listen(port, () => {
-    console.log(`RideMate server running on port ${port}`);
+  const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  server.listen(port, '0.0.0.0', () => {
+    console.log(`RideMate server running on http://0.0.0.0:${port}`);
   });
 }
 
-startServer().catch(console.error);
+startServer().catch((err) => {
+  console.error('[startServer] Fatal error:', err);
+  process.exit(1);
+});
