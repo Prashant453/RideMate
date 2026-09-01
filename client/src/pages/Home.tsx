@@ -179,6 +179,34 @@ function NotificationBell({ onNavigate }: { onNavigate?: (targetView: View) => v
   );
 }
 
+/* 📞 Component: CallButton */
+function CallButton({ rideId, targetUserId }: { rideId: number; targetUserId: string }) {
+  const contactQuery = trpc.rides.getContactInfo.useQuery({ rideId, targetUserId }, { retry: false });
+
+  if (contactQuery.isLoading) {
+    return (
+      <button disabled className="flex items-center gap-1 rounded-lg bg-[#e3ede1] px-3 py-1.5 text-[10px] font-bold text-[#356344] opacity-70">
+        <Phone className="h-3 w-3" /> ...
+      </button>
+    );
+  }
+
+  const phone = contactQuery.data?.phone_number;
+  if (!phone) {
+    return (
+      <button onClick={() => toast.info("No phone number saved.")} className="flex items-center gap-1 rounded-lg bg-[#e3ede1] px-3 py-1.5 text-[10px] font-bold text-[#356344]">
+        <Phone className="h-3 w-3" /> No Phone
+      </button>
+    );
+  }
+
+  return (
+    <a href={`tel:${phone}`} className="flex items-center gap-1 rounded-lg bg-[#356344] px-3 py-1.5 text-[10px] font-bold text-white shadow-xs hover:bg-[#284a33] transition">
+      <Phone className="h-3 w-3" /> Call
+    </a>
+  );
+}
+
 export default function Home() {
   const [view, setView] = useState<View>("home");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -443,18 +471,21 @@ export default function Home() {
             <div className="grid gap-2">{(rideRequestsQuery.data ?? []).map((req: any) => <div key={req.id} className="flex items-center justify-between rounded-xl bg-[#f1f4ef] px-3 py-3">
               <div><div className="text-[12px] font-bold">{req.profiles?.name ?? "Student"}</div><div className="mt-0.5 flex items-center gap-1 text-[10px] text-[#7b8982]"><Star className="h-3 w-3 fill-[#F06A3A] text-[#F06A3A]" /> {req.profiles?.rating ? Number(req.profiles.rating).toFixed(1) : "New"} · {req.profiles?.verification_status ?? "pending"}</div></div>
               <div className="flex items-center gap-2">
-                <StatusPill tone={statusTone(req.status)}>{req.status}</StatusPill>
+                <StatusPill tone={statusTone(req.status)}>{req.status === 'accepted' ? 'CONFIRMED' : req.status}</StatusPill>
                 {req.status === "pending" && <>
                   <button onClick={() => acceptRequestMutation.mutate({ requestId: req.id })} disabled={acceptRequestMutation.isPending} className="rounded-lg bg-[#356344] px-3 py-1.5 text-[10px] font-bold text-white">Accept</button>
                   <button onClick={() => rejectRequestMutation.mutate({ requestId: req.id })} disabled={rejectRequestMutation.isPending} className="rounded-lg bg-[#a93131] px-3 py-1.5 text-[10px] font-bold text-white">Reject</button>
                 </>}
                 {(req.status === "accepted" || req.status === "completed") && (
-                  <button
-                    onClick={() => setActiveChat({ rideId: req.ride_id, otherUserId: req.passenger_id, otherUserName: req.profiles?.name ?? "Passenger" })}
-                    className="flex items-center gap-1 rounded-lg bg-[#142633] px-3 py-1.5 text-[10px] font-bold text-white shadow-xs"
-                  >
-                    <MessageSquare className="h-3 w-3" /> Chat & Contact
-                  </button>
+                  <>
+                    <button
+                      onClick={() => setActiveChat({ rideId: req.ride_id, otherUserId: req.passenger_id, otherUserName: req.profiles?.name ?? "Passenger" })}
+                      className="flex items-center gap-1 rounded-lg bg-[#142633] px-3 py-1.5 text-[10px] font-bold text-white shadow-xs hover:bg-[#1a2f3e] transition"
+                    >
+                      <MessageSquare className="h-3 w-3" /> Text
+                    </button>
+                    <CallButton rideId={req.ride_id} targetUserId={req.passenger_id} />
+                  </>
                 )}
               </div>
             </div>)}</div>
@@ -480,19 +511,22 @@ export default function Home() {
 
           {/* Requested rides */}
           {ridesTab === "requested" && <div className="grid gap-4 lg:grid-cols-2">{(mineQuery.data as any).requested.map(({ request: req, ride }: any) => <div key={req.id} className="route-sheet rounded-[24px] border border-[#dfe5df] bg-[#fffdfa] p-5">
-            <div className="flex items-center justify-between"><StatusPill tone="orange">Requested</StatusPill><StatusPill tone={statusTone(req.status)}>{req.status}</StatusPill></div>
+            <div className="flex items-center justify-between"><StatusPill tone="orange">Requested</StatusPill><StatusPill tone={statusTone(req.status)}>{req.status === 'accepted' ? 'CONFIRMED' : req.status}</StatusPill></div>
             <div className="mt-5 font-display text-[30px] font-semibold tracking-[-0.05em]">{new Date(ride.departure_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</div>
             <div className="mt-1 text-[12px] font-bold text-[#52645b]">{locationsById.get(ride.origin_location_id) ?? "Origin"} <ArrowRight className="mx-1 inline h-3 w-3 text-[#F06A3A]" /> {locationsById.get(ride.destination_location_id) ?? "Destination"}</div>
             <div className="mt-5 flex items-center justify-between border-t border-[#edf0eb] pt-4 text-[11px] text-[#748279]">
-              <span>Request {req.status}</span>
+              <span>Request {req.status === 'accepted' ? 'confirmed' : req.status}</span>
               <div className="flex gap-2">
                 {(req.status === "accepted" || req.status === "completed") && (
-                  <button
-                    onClick={() => setActiveChat({ rideId: ride.id, otherUserId: ride.driver_id, otherUserName: "Driver" })}
-                    className="flex items-center gap-1 rounded-lg bg-[#142633] px-3 py-1.5 text-[10px] font-bold text-white shadow-xs"
-                  >
-                    <MessageSquare className="h-3 w-3" /> Chat & Contact
-                  </button>
+                  <>
+                    <button
+                      onClick={() => setActiveChat({ rideId: ride.id, otherUserId: ride.driver_id, otherUserName: "Driver" })}
+                      className="flex items-center gap-1 rounded-lg bg-[#142633] px-3 py-1.5 text-[10px] font-bold text-white shadow-xs hover:bg-[#1a2f3e] transition"
+                    >
+                      <MessageSquare className="h-3 w-3" /> Text
+                    </button>
+                    <CallButton rideId={ride.id} targetUserId={ride.driver_id} />
+                  </>
                 )}
                 {(req.status === "pending" || req.status === "accepted") && <button onClick={() => cancelRequestMutation.mutate({ requestId: req.id })} className="rounded-lg bg-[#a93131] px-3 py-1.5 text-[10px] font-bold text-white">Cancel request</button>}
                 {req.status === "completed" && <button onClick={() => { setRatingRideId(ride.id); setRatingToUserId(ride.driver_id); }} className="rounded-lg bg-[#F06A3A] px-3 py-1.5 text-[10px] font-bold text-white"><Star className="mr-1 inline h-3 w-3" />Rate driver</button>}
