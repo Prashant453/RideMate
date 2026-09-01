@@ -181,37 +181,35 @@ function NotificationBell({ onNavigate }: { onNavigate?: (targetView: View) => v
 
 /* 📞 Component: CallButton */
 function CallButton({ rideId, targetUserId }: { rideId: number; targetUserId: string }) {
-  const contactQuery = trpc.rides.getContactInfo.useQuery({ rideId, targetUserId }, { retry: false });
+  const [loading, setLoading] = useState(false);
+  const utils = trpc.useUtils();
 
-  if (contactQuery.isLoading) {
-    return (
-      <button disabled className="flex items-center gap-1 rounded-lg bg-[#e3ede1] px-3 py-1.5 text-[10px] font-bold text-[#356344] opacity-70">
-        <Phone className="h-3 w-3" /> ...
-      </button>
-    );
-  }
-
-  if (contactQuery.error) {
-    return (
-      <button onClick={() => toast.error(contactQuery.error?.message || "Failed to fetch contact")} className="flex items-center gap-1 rounded-lg bg-[#e3ede1] px-3 py-1.5 text-[10px] font-bold text-[#a93131]">
-        <Phone className="h-3 w-3" /> Error
-      </button>
-    );
-  }
-
-  const phone = contactQuery.data?.phone_number;
-  if (!phone) {
-    return (
-      <button onClick={() => toast.info("The other person hasn't added a phone number.")} className="flex items-center gap-1 rounded-lg bg-[#e3ede1] px-3 py-1.5 text-[10px] font-bold text-[#356344]">
-        <Phone className="h-3 w-3" /> No Phone
-      </button>
-    );
-  }
+  const handleCall = async () => {
+    setLoading(true);
+    try {
+      // Force fetch directly, bypassing cache
+      const data = await utils.rides.getContactInfo.fetch({ rideId, targetUserId });
+      if (!data?.phone_number) {
+        toast.info("The other person hasn't added a phone number.");
+      } else {
+        // Natively trigger phone dialer
+        window.location.href = `tel:${data.phone_number}`;
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to fetch contact");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <a href={`tel:${phone}`} className="flex items-center gap-1 rounded-lg bg-[#356344] px-3 py-1.5 text-[10px] font-bold text-white shadow-xs hover:bg-[#284a33] transition">
-      <Phone className="h-3 w-3" /> Call
-    </a>
+    <button 
+      onClick={handleCall}
+      disabled={loading}
+      className="flex items-center gap-1 rounded-lg bg-[#356344] px-3 py-1.5 text-[10px] font-bold text-white shadow-xs hover:bg-[#284a33] transition disabled:opacity-70"
+    >
+      <Phone className="h-3 w-3" /> {loading ? "..." : "Call"}
+    </button>
   );
 }
 
