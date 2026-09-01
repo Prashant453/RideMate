@@ -182,13 +182,20 @@ function NotificationBell({ onNavigate }: { onNavigate?: (targetView: View) => v
 /* 📞 Component: CallButton */
 function CallButton({ rideId, targetUserId }: { rideId: number; targetUserId: string }) {
   const [loading, setLoading] = useState(false);
-  const utils = trpc.useUtils();
 
   const handleCall = async () => {
     setLoading(true);
     try {
-      // Force fetch directly, bypassing cache
-      const data = await utils.rides.getContactInfo.fetch({ rideId, targetUserId });
+      // Force fetch directly from DB to bypass any stale TRPC backend deployments
+      const { data, error } = await supabase.rpc('get_confirmed_contact_info', { 
+        p_ride_id: rideId, 
+        p_target_user_id: targetUserId 
+      });
+      
+      if (error) {
+        throw error;
+      }
+
       if (!data?.phone_number) {
         toast.info("The other person hasn't added a phone number.");
       } else {
