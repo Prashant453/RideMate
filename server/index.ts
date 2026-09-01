@@ -77,25 +77,27 @@ async function startServer() {
 
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   server.listen(port, '0.0.0.0', () => {
-    console.log(`RideMate server running on http://0.0.0.0:${port}`);
+    console.log(`[RideMate] Server successfully listening on 0.0.0.0:${port}`);
   });
 
-  // Expire old rides in background after server is up
-  setTimeout(() => {
-    expireOldRides().catch(e => console.error('[expire-rides] Startup error:', e));
-  }, 5000);
-
+  // Expire old rides periodically (safely wrapped)
   setInterval(async () => {
     try {
-      const count = await expireOldRides();
-      if (count > 0) console.log(`[expire-rides] Expired ${count} ride(s)`);
+      await expireOldRides();
     } catch (e) {
-      console.error('[expire-rides] Error:', e);
+      console.warn('[expire-rides] Non-fatal background error:', e);
     }
   }, 15 * 60 * 1000);
 }
 
+process.on('uncaughtException', (err) => {
+  console.error('[Process] Uncaught exception (prevented crash):', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Process] Unhandled rejection (prevented crash):', reason);
+});
+
 startServer().catch((err) => {
-  console.error('[startServer] Fatal error:', err);
-  process.exit(1);
+  console.error('[startServer] Fatal error starting server:', err);
 });
