@@ -27,7 +27,7 @@ queryClient.getMutationCache().subscribe(event => {
   }
 });
 
-const serverUrl = import.meta.env.VITE_SERVER_URL || "";
+const serverUrl = import.meta.env.VITE_SERVER_URL || (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app') ? 'https://ridemate-backend-m7ti.onrender.com' : '');
 
 const trpcClient = trpc.createClient({
   links: [
