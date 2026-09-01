@@ -100,23 +100,11 @@ export async function updateUserProfile(userId: string, input: {
     .select('*, colleges(*)')
     .single();
 
-  if (error && (error.message?.includes("phone_number") || error.code === 'PGRST204')) {
-    delete updateData.phone_number;
-    const retryRes = await supabaseAdmin
-      .from('profiles')
-      .upsert(updateData, { onConflict: 'id' })
-      .select('*, colleges(*)')
-      .single();
-    if (retryRes.error) throw retryRes.error;
-    data = retryRes.data;
-  } else if (error) {
+  if (error) {
     throw error;
   }
 
-  return {
-    ...data,
-    phone_number: data?.phone_number || input.phoneNumber || null,
-  };
+  return data;
 }
 
 // ── Admin Verification Functions ──────────────────────────────
