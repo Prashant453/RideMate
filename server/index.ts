@@ -44,29 +44,14 @@ async function startServer() {
     createContext,
   }));
 
-  // Serve static client assets if available
-  const staticPath = path.resolve(__dirname, 'public');
-  const distPublicPath = path.resolve(process.cwd(), 'dist', 'public');
-  const clientPath = fs.existsSync(staticPath) ? staticPath : (fs.existsSync(distPublicPath) ? distPublicPath : null);
-
-  if (clientPath) {
-    app.use(express.static(clientPath));
-    app.get('*', (req, res, next) => {
-      if (req.path.startsWith('/api/')) return next();
-      res.sendFile(path.join(clientPath, 'index.html'), (err) => {
-        if (err) next();
-      });
+  app.get('/', (_req, res) => {
+    res.json({
+      service: 'RideMate Backend API',
+      status: 'online',
+      health: '/api/health',
+      trpc: '/api/trpc',
     });
-  } else {
-    app.get('/', (_req, res) => {
-      res.json({
-        service: 'RideMate Backend API',
-        status: 'online',
-        health: '/api/health',
-        trpc: '/api/trpc',
-      });
-    });
-  }
+  });
 
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   app.listen(port, () => {
