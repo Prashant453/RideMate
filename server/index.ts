@@ -69,8 +69,8 @@ async function startServer() {
   }
 
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-  server.listen(port, '0.0.0.0', () => {
-    console.log(`[RideMate] Server successfully listening on 0.0.0.0:${port}`);
+  app.listen(port, () => {
+    console.log(`[RideMate] Server successfully listening on port ${port}`);
   });
 
   // Expire old rides periodically (safely wrapped)
