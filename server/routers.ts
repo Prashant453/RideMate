@@ -43,7 +43,7 @@ export const appRouter = router({
     mine: protectedProcedure.query(({ ctx }) => listUserRides(ctx.user.id)),
     getContactInfo: protectedProcedure
       .input(z.object({ rideId: z.number().int().positive(), targetUserId: z.string().uuid() }))
-      .query(({ ctx, input }) => getConfirmedContactInfo(input.rideId, ctx.user.id, input.targetUserId)),
+      .query(({ ctx, input }) => getConfirmedContactInfo(input.rideId, input.targetUserId, ctx.user.id)),
     requestSeat: protectedProcedure
       .input(z.object({ rideId: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
