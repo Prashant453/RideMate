@@ -158,17 +158,31 @@ export const appRouter = router({
         receiverId: z.string().uuid(),
         message: z.string().min(1).max(1000),
       }))
-      .mutation(({ ctx, input }) =>
-        sendChatMessage(input.rideId, ctx.user.id, input.receiverId, input.message)
-      ),
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await sendChatMessage(input.rideId, ctx.user.id, input.receiverId, input.message);
+        } catch (err: any) {
+          if (err?.message === 'NOT_AUTHORIZED_FOR_CHAT') {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Not authorized for chat on this ride' });
+          }
+          throw err;
+        }
+      }),
     history: protectedProcedure
       .input(z.object({
         rideId: z.number().int().positive(),
         otherUserId: z.string().uuid(),
       }))
-      .query(({ ctx, input }) =>
-        getChatHistory(input.rideId, input.otherUserId, ctx.user.id)
-      ),
+      .query(async ({ ctx, input }) => {
+        try {
+          return await getChatHistory(input.rideId, input.otherUserId, ctx.user.id);
+        } catch (err: any) {
+          if (err?.message === 'NOT_AUTHORIZED_FOR_CHAT') {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Not authorized for chat on this ride' });
+          }
+          throw err;
+        }
+      }),
     markRead: protectedProcedure
       .input(z.object({
         rideId: z.number().int().positive(),
