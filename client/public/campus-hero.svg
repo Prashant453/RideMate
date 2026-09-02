@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 450" fill="none">
+  <defs>
+    <linearGradient id="skyGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#dfe9df"/>
+      <stop offset="100%" stop-color="#cadbc9"/>
+    </linearGradient>
+    <linearGradient id="hillGrad1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#73977c" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#4a6d53" stop-opacity="0.8"/>
+    </linearGradient>
+    <linearGradient id="hillGrad2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#557c5f" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#35553e" stop-opacity="0.95"/>
+    </linearGradient>
+    <linearGradient id="roadGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f7f5ef" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#ede9dd" stop-opacity="0.95"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Sky base -->
+  <rect width="1200" height="450" fill="url(#skyGrad)"/>
+
+  <!-- Distant mountain ridges -->
+  <path d="M0,280 Q250,160 500,240 T1000,190 Q1100,210 1200,180 L1200,450 L0,450 Z" fill="#9dbba4" opacity="0.45"/>
+  <path d="M0,320 Q200,220 480,290 T950,250 Q1080,270 1200,240 L1200,450 L0,450 Z" fill="url(#hillGrad1)"/>
+  <path d="M0,370 Q300,280 620,350 T1200,310 L1200,450 L0,450 Z" fill="url(#hillGrad2)"/>
+
+  <!-- Winding campus wayfinding road -->
+  <path d="M420,450 C540,380 620,370 700,340 C780,310 820,330 920,290 C980,265 1060,260 1200,270" stroke="url(#roadGrad)" stroke-width="26" stroke-linecap="round" fill="none"/>
+  <path d="M420,450 C540,380 620,370 700,340 C780,310 820,330 920,290 C980,265 1060,260 1200,270" stroke="#F06A3A" stroke-width="3" stroke-dasharray="10 14" fill="none" opacity="0.8"/>
+
+  <!-- Route waypoint nodes -->
+  <circle cx="700" cy="340" r="8" fill="#F06A3A"/>
+  <circle cx="700" cy="340" r="13" stroke="#F06A3A" stroke-width="2" opacity="0.5"/>
+  <circle cx="920" cy="290" r="7" fill="#F06A3A"/>
+</svg>

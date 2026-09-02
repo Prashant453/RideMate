@@ -1,6 +1,6 @@
 /**
  * Unified type exports for RideMate with Supabase backend.
- * Database types are inferred from Supabase queries, not from Drizzle schema.
+ * Database types are inferred from Supabase queries and migrations.
  */
 
 // Ride status values

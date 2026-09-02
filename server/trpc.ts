@@ -1,12 +1,7 @@
-import dotenv from 'dotenv';
-import path from 'path';
 import { initTRPC, TRPCError } from '@trpc/server';
 import type { CreateExpressContextOptions } from '@trpc/server/adapters/express';
-import { createClient } from '@supabase/supabase-js';
 import superjson from 'superjson';
-
-dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
-dotenv.config();
+import { supabaseAdmin } from './supabaseAdmin';
 
 interface UserContext {
   id: string; // uuid from auth.users
@@ -27,15 +22,11 @@ export async function createContext({ req }: CreateExpressContextOptions): Promi
   if (!token) return { user: null };
 
   try {
-    const supabase = createClient(
-      process.env.VITE_SUPABASE_URL || 'https://jninydpdadnqlgrhtqps.supabase.co',
-      process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuaW55ZHBkYWRucWxncmh0cXBzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgwOTQ0ODcsImV4cCI6MjEwMzY3MDQ4N30.NwgNM7z6ieDOXJjL9bKC6ASZZX1ApQk6vRjJPXeAqVo'
-    );
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
     if (error || !user) return { user: null };
 
     // Fetch user role from profiles
-    const { data: profile } = await supabase
+    const { data: profile } = await supabaseAdmin
       .from('profiles')
       .select('role')
       .eq('id', user.id)
