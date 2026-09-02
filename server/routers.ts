@@ -1,9 +1,12 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { publicProcedure, protectedProcedure, adminProcedure, superAdminProcedure, router } from './trpc';
+import {
+  publicProcedure, protectedProcedure, adminProcedure, superAdminProcedure,
+  seatRequestProcedure, chatSendProcedure, rideCreateProcedure, router
+} from './trpc';
 import {
   searchRides, createRide, requestRideSeat, acceptRideRequest, rejectRideRequest,
-  cancelRideRequest, cancelRide, completeRide, listUserRides, getRideRequests,
+  cancelRideRequest, cancelRide, completeRide, startRide, listUserRides, getRideRequests,
   listLocations, listColleges, listVehicles, addVehicle, updateVehicle, deleteVehicle,
   getUserProfile, updateUserProfile, submitRating, getRatingsForRide,
   getNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead,
@@ -18,7 +21,13 @@ const rideInput = z.object({
   destinationLocationId: z.number().int().positive(),
   departureAt: z.coerce.date(),
   availableSeats: z.number().int().min(1).max(8),
-  notes: z.string().max(500).optional(),
+  notes: z.string().trim().max(500).optional(),
+}).refine(data => data.originLocationId !== data.destinationLocationId, {
+  message: 'Origin and destination locations must be different',
+  path: ['destinationLocationId'],
+}).refine(data => data.departureAt.getTime() > Date.now() - 5 * 60 * 1000, {
+  message: 'Departure time must be in the future',
+  path: ['departureAt'],
 });
 
 export const appRouter = router({
@@ -37,14 +46,14 @@ export const appRouter = router({
       offset: z.number().int().min(0).default(0),
       refreshToken: z.number().int().min(0).default(0),
     })).query(({ input }) => searchRides(input)),
-    create: protectedProcedure.input(rideInput).mutation(({ ctx, input }) =>
+    create: rideCreateProcedure.input(rideInput).mutation(({ ctx, input }) =>
       createRide(ctx.user.id, input)
     ),
     mine: protectedProcedure.query(({ ctx }) => listUserRides(ctx.user.id)),
     getContactInfo: protectedProcedure
       .input(z.object({ rideId: z.number().int().positive(), targetUserId: z.string().uuid() }))
       .query(({ ctx, input }) => getConfirmedContactInfo(input.rideId, input.targetUserId, ctx.user.id)),
-    requestSeat: protectedProcedure
+    requestSeat: seatRequestProcedure
       .input(z.object({ rideId: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         try {
@@ -83,6 +92,9 @@ export const appRouter = router({
     complete: protectedProcedure
       .input(z.object({ rideId: z.number().int().positive() }))
       .mutation(({ ctx, input }) => completeRide(input.rideId, ctx.user.id)),
+    start: protectedProcedure
+      .input(z.object({ rideId: z.number().int().positive() }))
+      .mutation(({ ctx, input }) => startRide(input.rideId, ctx.user.id)),
   }),
   vehicles: router({
     mine: protectedProcedure.query(({ ctx }) => listVehicles(ctx.user.id)),
@@ -116,13 +128,21 @@ export const appRouter = router({
         course: z.string().max(160).nullable().optional(),
         year: z.string().max(40).nullable().optional(),
         profileImage: z.string().url().nullable().optional(),
-        phoneNumber: z.string().max(30).nullable().optional(),
+        phoneNumber: z.string().trim().max(25).nullable().optional()
+          .refine(val => !val || /^\+?[0-9\s-]{7,20}$/.test(val), {
+            message: 'Invalid phone number format. Please use 7-20 digits with optional + country code',
+          }),
       }))
       .mutation(({ ctx, input }) => updateUserProfile(ctx.user.id, input)),
   }),
   admin: router({
     stats: adminProcedure.query(() => getPlatformStats()),
-    users: adminProcedure.query(() => listUsersForAdmin()),
+    users: adminProcedure
+      .input(z.object({
+        limit: z.number().int().min(1).max(100).default(50),
+        offset: z.number().int().min(0).default(0),
+      }).optional())
+      .query(({ input }) => listUsersForAdmin(input?.limit ?? 50, input?.offset ?? 0)),
     updateVerification: adminProcedure
       .input(z.object({
         userId: z.string().uuid(),
@@ -152,7 +172,7 @@ export const appRouter = router({
       .mutation(({ input }) => superAdminUpdateRole(input.userId, input.newRole)),
   }),
   chat: router({
-    send: protectedProcedure
+    send: chatSendProcedure
       .input(z.object({
         rideId: z.number().int().positive(),
         receiverId: z.string().uuid(),
@@ -172,10 +192,11 @@ export const appRouter = router({
       .input(z.object({
         rideId: z.number().int().positive(),
         otherUserId: z.string().uuid(),
+        limit: z.number().int().min(1).max(200).default(100),
       }))
       .query(async ({ ctx, input }) => {
         try {
-          return await getChatHistory(input.rideId, input.otherUserId, ctx.user.id);
+          return await getChatHistory(input.rideId, input.otherUserId, ctx.user.id, input.limit);
         } catch (err: any) {
           if (err?.message === 'NOT_AUTHORIZED_FOR_CHAT') {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Not authorized for chat on this ride' });

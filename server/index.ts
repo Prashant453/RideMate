@@ -16,12 +16,22 @@ import { expireOldRides } from './db';
 import webpush from 'web-push';
 import { supabaseAdmin } from './supabaseAdmin';
 
-// Configure Web Push
-webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT || 'mailto:prashant65001@gmail.com',
-  process.env.VAPID_PUBLIC_KEY || '',
-  process.env.VAPID_PRIVATE_KEY || ''
-);
+import { createExpressRateLimit } from './rateLimiter';
+
+// Configure Web Push safely
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  try {
+    webpush.setVapidDetails(
+      process.env.VAPID_SUBJECT || 'mailto:prashant65001@gmail.com',
+      process.env.VAPID_PUBLIC_KEY,
+      process.env.VAPID_PRIVATE_KEY
+    );
+  } catch (err) {
+    console.warn('[WebPush] Failed to set VAPID details:', err);
+  }
+} else {
+  console.log('[WebPush] VAPID keys not configured, push notifications disabled');
+}
 
 async function startServer() {
   const app = express();
@@ -47,6 +57,9 @@ async function startServer() {
     res.status(200).json({ status: 'ok', service: 'ridemate-backend', timestamp: new Date().toISOString() });
   });
 
+  // General rate limiting for /api endpoints
+  app.use('/api', createExpressRateLimit(120, 60_000));
+
   // Mount tRPC API
   app.use('/api/trpc', trpcExpress.createExpressMiddleware({
     router: appRouter,
@@ -63,7 +76,7 @@ async function startServer() {
   });
 
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-  app.listen(port, () => {
+  server.listen(port, () => {
     console.log(`[RideMate] Server successfully listening on port ${port}`);
   });
 

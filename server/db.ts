@@ -108,12 +108,12 @@ export async function updateUserProfile(userId: string, input: {
 }
 
 // ── Admin Verification Functions ──────────────────────────────
-export async function listUsersForAdmin() {
+export async function listUsersForAdmin(limit = 50, offset = 0) {
   const { data, error } = await supabaseAdmin
     .from('profiles')
     .select('*, colleges(name)')
     .order('created_at', { ascending: false })
-    .limit(100);
+    .range(offset, offset + limit - 1);
   if (error) throw error;
   return data || [];
 }
@@ -343,6 +343,15 @@ export async function completeRide(rideId: number, driverId: string) {
   return { success: true };
 }
 
+export async function startRide(rideId: number, driverId: string) {
+  const { error } = await supabaseAdmin.rpc('start_ride', {
+    p_ride_id: rideId,
+    p_driver_id: driverId,
+  });
+  if (error) throw error;
+  return { success: true };
+}
+
 // ── My Rides ──────────────────────────────────────────
 export async function listUserRides(userId: string) {
   const [offeredRes, requestedRes] = await Promise.all([
@@ -536,7 +545,7 @@ export async function sendChatMessage(rideId: number, senderId: string, receiver
   return data;
 }
 
-export async function getChatHistory(rideId: number, otherUserId: string, currentUserId: string) {
+export async function getChatHistory(rideId: number, otherUserId: string, currentUserId: string, limit = 100) {
   const isCurrentConfirmed = await isConfirmedParticipant(rideId, currentUserId);
   if (!isCurrentConfirmed) throw new Error('NOT_AUTHORIZED_FOR_CHAT');
 
@@ -545,7 +554,8 @@ export async function getChatHistory(rideId: number, otherUserId: string, curren
     .select('*')
     .eq('ride_id', rideId)
     .or(`and(sender_id.eq.${currentUserId},receiver_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},receiver_id.eq.${currentUserId})`)
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: true })
+    .limit(limit);
 
   if (error) throw error;
   return data || [];
