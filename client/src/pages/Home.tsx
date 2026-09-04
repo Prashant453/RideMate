@@ -6,6 +6,14 @@ import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { trpc } from "@/lib/trpc";
 import { supabase } from "@/lib/supabase";
 import { buildSearchWindow } from "@/lib/searchFilters";
+import {
+  getLocalDateString,
+  getLocalTimeString,
+  getDefaultDepartureTime,
+  parseLocalDateTime,
+  isPastDate,
+  isPastDateTime,
+} from "@/lib/dateTime";
 import { FindRideFilters } from "@/components/FindRideFilters";
 import { ChatModal } from "@/components/ChatModal";
 import { AdminDashboard } from "@/components/AdminDashboard";
@@ -270,8 +278,8 @@ export default function Home() {
   const [searchRefreshToken, setSearchRefreshToken] = useState(0);
   const [offerFrom, setOfferFrom] = useState("DBUU");
   const [offerTo, setOfferTo] = useState("Bhauwala");
-  const [offerDate, setOfferDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [offerTime, setOfferTime] = useState("16:30");
+  const [offerDate, setOfferDate] = useState(() => getLocalDateString());
+  const [offerTime, setOfferTime] = useState(() => getDefaultDepartureTime());
   const [offerSeats, setOfferSeats] = useState("1");
   const [offerVehicleId, setOfferVehicleId] = useState<string>("");
   const [offerNote, setOfferNote] = useState("");
@@ -308,7 +316,19 @@ export default function Home() {
   const searchWindow = useMemo(() => buildSearchWindow(time, flexibility), [time, flexibility]);
   const backendRidesQuery = trpc.rides.search.useQuery({ originLocationId: originLocation?.id, destinationLocationId: destinationLocation?.id, ...searchWindow, refreshToken: searchRefreshToken, limit: 20, offset: 0 }, { enabled: view === "find" && Boolean(destinationLocation?.id) });
   const requestSeatMutation = trpc.rides.requestSeat.useMutation({ onSuccess: async (_: any, input: any) => { setRequestedIds((current) => Array.from(new Set([...current, input.rideId]))); toast.success("Seat request sent", { description: "The driver will see your request in their ride inbox." }); await utils.rides.search.invalidate(); }, onError: (error: any) => toast.error(error.message.includes("not available") ? "That ride is not available" : "Could not request this seat", { description: "Please refresh and try again." }) });
-  const createRideMutation = trpc.rides.create.useMutation({ onSuccess: async () => { setOfferPreview(false); toast.success("Ride published", { description: "Your route is now stored for other students to discover." }); await utils.rides.mine.invalidate(); }, onError: () => toast.error("Could not publish this ride", { description: "Check the route and try again." }) });
+  const createRideMutation = trpc.rides.create.useMutation({
+    onSuccess: async () => {
+      setOfferPreview(false);
+      toast.success("Ride published", { description: "Your route is now stored for other students to discover." });
+      await utils.rides.mine.invalidate();
+    },
+    onError: (error: any) => {
+      const fieldError = error.data?.zodError?.fieldErrors?.departureAt?.[0] || error.data?.zodError?.fieldErrors?.destinationLocationId?.[0];
+      toast.error(fieldError || error.message || "Could not publish this ride", {
+        description: "Please check the route and departure time, then try again.",
+      });
+    },
+  });
   const locationsById = useMemo(() => new Map((locationsQuery.data ?? []).map((location: any) => [location.id, location.name])), [locationsQuery.data]);
   const backendRides = useMemo(() => (backendRidesQuery.data ?? []).map((ride: any) => ({ id: ride.id, time: new Date(ride.departureAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }), origin: locationsById.get(ride.originLocationId) ?? from, destination: locationsById.get(ride.destinationLocationId) ?? to, name: ride.driverName ?? "RideMate student", rating: ride.driverRating ? Number(ride.driverRating).toFixed(1) : "New", vehicle: ride.vehicleType ? `${ride.vehicleType[0].toUpperCase()}${ride.vehicleType.slice(1)}` : "Vehicle", seats: ride.availableSeats })), [backendRidesQuery.data, locationsById, from, to]);
   const mineQuery = trpc.rides.mine.useQuery(undefined, { enabled: view === "rides" && isAuthenticated });
@@ -411,6 +431,31 @@ export default function Home() {
     setSearchRefreshToken((current) => current + 1);
   };
 
+  const validateOfferDateTime = () => {
+    if (!offerDate) {
+      toast.error("Please choose a departure date");
+      return false;
+    }
+    if (!offerTime) {
+      toast.error("Please choose a departure time");
+      return false;
+    }
+    if (isPastDate(offerDate)) {
+      toast.error("Cannot offer a ride on a past date", {
+        description: "Please choose today or an upcoming date.",
+      });
+      setOfferDate(getLocalDateString());
+      return false;
+    }
+    if (isPastDateTime(offerDate, offerTime)) {
+      toast.error("Departure time has already passed", {
+        description: "Please choose a departure time in the future.",
+      });
+      return false;
+    }
+    return true;
+  };
+
   const requireAuth = (message: string) => { toast(message, { description: "Please sign in or create an account." }); };
   const request = (id: number) => { if (!isAuthenticated) { requireAuth("Sign in to request a seat"); return; } requestSeatMutation.mutate({ rideId: id }); };
   const publishRide = () => {
@@ -418,7 +463,19 @@ export default function Home() {
     const originId = locationsQuery.data?.find((location: any) => location.name === offerFrom)?.id;
     const destinationId = locationsQuery.data?.find((location: any) => location.name === offerTo)?.id;
     if (!originId || !destinationId) { toast.error("Choose a valid campus route"); return; }
-    createRideMutation.mutate({ originLocationId: originId, destinationLocationId: destinationId, departureAt: new Date(`${offerDate}T${offerTime}`), availableSeats: Number(offerSeats), vehicleId: offerVehicleId ? Number(offerVehicleId) : undefined, notes: offerNote || undefined });
+    if (originId === destinationId) { toast.error("Origin and destination must be different"); return; }
+    if (!validateOfferDateTime()) return;
+
+    const departureDateTime = parseLocalDateTime(offerDate, offerTime);
+
+    createRideMutation.mutate({
+      originLocationId: originId,
+      destinationLocationId: destinationId,
+      departureAt: departureDateTime,
+      availableSeats: Number(offerSeats),
+      vehicleId: offerVehicleId ? Number(offerVehicleId) : undefined,
+      notes: offerNote || undefined,
+    });
   };
 
   const statusTone = (s: string): "green" | "orange" | "blue" | "red" => {
@@ -496,7 +553,7 @@ export default function Home() {
       {view === "find" && <section className="animate-enter"><div className="mb-7 flex items-end justify-between gap-4"><div><span className="eyebrow">Find a ride</span><h1 className="mt-2 font-display text-[42px] font-semibold tracking-[-0.06em]">Rides going your way.</h1><p className="mt-2 text-[13px] text-[#718078]">{from} → {to} · Today · around {time}</p></div><button onClick={() => nav("home")} className="hidden items-center gap-1.5 text-[12px] font-bold text-[#61766b] sm:flex"><X className="h-4 w-4" /> Clear search</button></div><FindRideFilters locations={locationsQuery.data ?? []} from={draftFrom} to={draftTo} time={draftTime} flexibility={draftFlexibility} updating={backendRidesQuery.isFetching} onFromChange={setDraftFrom} onToChange={setDraftTo} onTimeChange={setDraftTime} onFlexibilityChange={setDraftFlexibility} onUpdate={applyFindFilters} /><div className="flex items-center justify-between"><h2 className="font-display text-[25px] font-semibold tracking-[-0.04em]">{backendRidesQuery.isSuccess ? `${backendRides.length} nearby matches` : "Nearby matches"}</h2><span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#8a978f]">Best match first</span></div><div className="mt-4">{backendRidesQuery.isLoading && <LoadingState label="Looking across the campus route…" />}{backendRidesQuery.isError && <ErrorState label="We couldn't load rides right now." onRetry={() => void backendRidesQuery.refetch()} />}{backendRidesQuery.isSuccess && backendRides.length === 0 && <div className="rounded-[24px] border border-dashed border-[#cbd7cd] bg-[#eef4ec] p-10 text-center"><Search className="mx-auto h-6 w-6 text-[#819b8a]" /><p className="mt-3 text-[13px] font-bold text-[#43614d]">No rides on this route yet.</p><p className="mt-1 text-[11px] text-[#708077]">Offer the first ride and help someone else get home.</p><button onClick={() => nav("offer")} className="mt-4 rounded-full bg-[#F06A3A] px-4 py-2.5 text-[11px] font-bold text-white">Offer a ride <ArrowRight className="ml-1 inline h-3 w-3" /></button></div>}{backendRidesQuery.isSuccess && backendRides.length > 0 && <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{backendRides.map((ride) => <RideCard key={ride.id} ride={ride} requested={requestedIds.includes(ride.id)} onRequest={() => request(ride.id)} />)}</div>}</div></section>}
 
       {/* ── OFFER ── */}
-      {view === "offer" && <section className="animate-enter mx-auto max-w-[980px]"><div className="mb-7"><span className="eyebrow">Offer a ride</span><h1 className="mt-2 font-display text-[42px] font-semibold tracking-[-0.06em]">Put an empty seat to work.</h1><p className="mt-2 max-w-[500px] text-[13px] leading-6 text-[#718078]">Your selections are saved when you publish. Students discover the route from the database-backed search.</p></div>{!isAuthenticated ? <AuthForm onSuccess={() => {}} /> : <div className="grid gap-6 lg:grid-cols-[1fr_320px]"><div className="route-sheet rounded-[25px] border border-[#dfe5df] bg-[#fffdfa] p-5 sm:p-7"><div className="grid gap-4 sm:grid-cols-2"><label className="field"><span>From</span><select value={offerFrom} onChange={(event) => setOfferFrom(event.target.value)}>{(locationsQuery.data ?? []).map((location: any) => <option key={location.id}>{location.name}</option>)}</select></label><label className="field"><span>To</span><select value={offerTo} onChange={(event) => setOfferTo(event.target.value)}>{(locationsQuery.data ?? []).map((location: any) => <option key={location.id}>{location.name}</option>)}</select></label><label className="field"><span>Date</span><input type="date" value={offerDate} onChange={(event) => setOfferDate(event.target.value)} /></label><label className="field"><span>Departure time</span><input type="time" value={offerTime} onChange={(event) => setOfferTime(event.target.value)} /></label><label className="field"><span>Vehicle</span><select value={offerVehicleId} onChange={(event) => setOfferVehicleId(event.target.value)}><option value="">No vehicle linked</option>{(vehiclesQuery.data ?? []).map((vehicle: any) => <option key={vehicle.id} value={vehicle.id}>{vehicle.model} · {vehicle.type}</option>)}</select></label><label className="field"><span>Available seats</span><select value={offerSeats} onChange={(event) => setOfferSeats(event.target.value)}><option value="1">1 seat</option><option value="2">2 seats</option><option value="3">3 seats</option></select></label></div><label className="field mt-4"><span>Note <small>(optional)</small></span><textarea value={offerNote} onChange={(event) => setOfferNote(event.target.value)} placeholder="e.g. I can pick up near the main gate" rows={3} /></label><button onClick={() => setOfferPreview(true)} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#142633] py-3.5 text-[12px] font-bold text-white transition active:scale-[0.99] hover:bg-[#253e4c]">{offerPreview ? <><Check className="h-4 w-4" /> Preview updated</> : <>Preview your ride <ArrowRight className="h-4 w-4" /></>}</button></div><div className="route-preview"><span className="eyebrow">Preview</span><h3 className="mt-2 font-display text-[27px] font-semibold tracking-[-0.05em]">Your ride sheet</h3><div className="my-6 h-px bg-[#d7e0d7]" /><div className="flex items-center gap-3 text-[12px] font-bold"><Clock3 className="h-4 w-4 text-[#F06A3A]" /> {offerDate} · {offerTime}</div><div className="my-6 flex items-center gap-3 text-[12px] font-bold text-[#30433e]"><span className="h-2.5 w-2.5 rounded-full bg-[#F06A3A]" />{offerFrom} <ArrowRight className="h-3 w-3" /> <span className="h-2.5 w-2.5 rounded-full bg-[#356344]" />{offerTo}</div><div className="flex items-center justify-between rounded-xl bg-[#f1f4ef] px-3 py-3 text-[11px] font-bold text-[#52645b]"><span><Bike className="mr-1.5 inline h-3.5 w-3.5" /> {offerVehicleId ? "Linked vehicle" : "Vehicle to be added"}</span><span>{offerSeats} {Number(offerSeats) === 1 ? "seat" : "seats"}</span></div><button disabled={createRideMutation.isPending} onClick={publishRide} className="mt-4 w-full rounded-xl bg-[#F06A3A] py-3 text-[11px] font-bold text-white transition hover:bg-[#d85d31] disabled:cursor-not-allowed disabled:opacity-60">{createRideMutation.isPending ? "Publishing…" : "Publish ride"}</button></div></div>}</section>}
+      {view === "offer" && <section className="animate-enter mx-auto max-w-[980px]"><div className="mb-7"><span className="eyebrow">Offer a ride</span><h1 className="mt-2 font-display text-[42px] font-semibold tracking-[-0.06em]">Put an empty seat to work.</h1><p className="mt-2 max-w-[500px] text-[13px] leading-6 text-[#718078]">Your selections are saved when you publish. Students discover the route from the database-backed search.</p></div>{!isAuthenticated ? <AuthForm onSuccess={() => {}} /> : <div className="grid gap-6 lg:grid-cols-[1fr_320px]"><div className="route-sheet rounded-[25px] border border-[#dfe5df] bg-[#fffdfa] p-5 sm:p-7"><div className="grid gap-4 sm:grid-cols-2"><label className="field"><span>From</span><select value={offerFrom} onChange={(event) => setOfferFrom(event.target.value)}>{(locationsQuery.data ?? []).map((location: any) => <option key={location.id}>{location.name}</option>)}</select></label><label className="field"><span>To</span><select value={offerTo} onChange={(event) => setOfferTo(event.target.value)}>{(locationsQuery.data ?? []).map((location: any) => <option key={location.id}>{location.name}</option>)}</select></label><label className="field"><span>Date</span><input type="date" min={getLocalDateString()} value={offerDate} onChange={(event) => { const selected = event.target.value; if (selected && isPastDate(selected)) { toast.error("You cannot select a past date"); setOfferDate(getLocalDateString()); } else { setOfferDate(selected); } }} /></label><label className="field"><span>Departure time</span><input type="time" min={offerDate === getLocalDateString() ? getLocalTimeString() : undefined} value={offerTime} onChange={(event) => { const selectedTime = event.target.value; setOfferTime(selectedTime); if (offerDate === getLocalDateString() && isPastDateTime(offerDate, selectedTime)) { toast.error("Selected departure time has already passed for today"); } }} /></label><label className="field"><span>Vehicle</span><select value={offerVehicleId} onChange={(event) => setOfferVehicleId(event.target.value)}><option value="">No vehicle linked</option>{(vehiclesQuery.data ?? []).map((vehicle: any) => <option key={vehicle.id} value={vehicle.id}>{vehicle.model} · {vehicle.type}</option>)}</select></label><label className="field"><span>Available seats</span><select value={offerSeats} onChange={(event) => setOfferSeats(event.target.value)}><option value="1">1 seat</option><option value="2">2 seats</option><option value="3">3 seats</option></select></label></div><label className="field mt-4"><span>Note <small>(optional)</small></span><textarea value={offerNote} onChange={(event) => setOfferNote(event.target.value)} placeholder="e.g. I can pick up near the main gate" rows={3} /></label><button onClick={() => { if (validateOfferDateTime()) setOfferPreview(true); }} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#142633] py-3.5 text-[12px] font-bold text-white transition active:scale-[0.99] hover:bg-[#253e4c]">{offerPreview ? <><Check className="h-4 w-4" /> Preview updated</> : <>Preview your ride <ArrowRight className="h-4 w-4" /></>}</button></div><div className="route-preview"><span className="eyebrow">Preview</span><h3 className="mt-2 font-display text-[27px] font-semibold tracking-[-0.05em]">Your ride sheet</h3><div className="my-6 h-px bg-[#d7e0d7]" /><div className="flex items-center gap-3 text-[12px] font-bold"><Clock3 className="h-4 w-4 text-[#F06A3A]" /> {offerDate} · {offerTime}</div><div className="my-6 flex items-center gap-3 text-[12px] font-bold text-[#30433e]"><span className="h-2.5 w-2.5 rounded-full bg-[#F06A3A]" />{offerFrom} <ArrowRight className="h-3 w-3" /> <span className="h-2.5 w-2.5 rounded-full bg-[#356344]" />{offerTo}</div><div className="flex items-center justify-between rounded-xl bg-[#f1f4ef] px-3 py-3 text-[11px] font-bold text-[#52645b]"><span><Bike className="mr-1.5 inline h-3.5 w-3.5" /> {offerVehicleId ? "Linked vehicle" : "Vehicle to be added"}</span><span>{offerSeats} {Number(offerSeats) === 1 ? "seat" : "seats"}</span></div><button disabled={createRideMutation.isPending} onClick={publishRide} className="mt-4 w-full rounded-xl bg-[#F06A3A] py-3 text-[11px] font-bold text-white transition hover:bg-[#d85d31] disabled:cursor-not-allowed disabled:opacity-60">{createRideMutation.isPending ? "Publishing…" : "Publish ride"}</button></div></div>}</section>}
 
       {/* ── MY RIDES ── */}
       {view === "rides" && <section className="animate-enter"><div className="mb-7 flex items-end justify-between"><div><span className="eyebrow">My rides</span><h1 className="mt-2 font-display text-[42px] font-semibold tracking-[-0.06em]">Keep your routes close.</h1></div><button onClick={() => nav("offer")} className="hidden items-center gap-2 rounded-full bg-[#F06A3A] px-4 py-2.5 text-[11px] font-bold text-white sm:flex"><Plus className="h-4 w-4" /> Offer a ride</button></div>
