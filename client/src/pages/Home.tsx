@@ -48,7 +48,9 @@ function AuthForm({ onSuccess }: { onSuccess?: () => void }) {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
-  const { signIn, signUp } = useAuth();
+  const [showResend, setShowResend] = useState(false);
+  const [resending, setResending] = useState(false);
+  const { signIn, signUp, resendVerificationEmail } = useAuth();
 
   const submit = async () => {
     if (!email || !password) { toast.error("Enter email and password"); return; }
@@ -56,10 +58,32 @@ function AuthForm({ onSuccess }: { onSuccess?: () => void }) {
     setLoading(true);
     const res = mode === "register" ? await signUp(email, password, name) : await signIn(email, password);
     setLoading(false);
-    if (res.error) { toast.error(res.error); return; }
-    if (mode === "register") toast.success("Account created! You may need to verify your email.");
-    else toast.success("Welcome back!");
-    onSuccess?.();
+    if (res.error) {
+      toast.error(res.error);
+      if (res.error.toLowerCase().includes("not confirmed") || res.error.toLowerCase().includes("verify your email")) {
+        setShowResend(true);
+      }
+      return;
+    }
+    if (mode === "register") {
+      toast.success("Account created! Please check your email inbox to confirm your account.");
+      setShowResend(true);
+    } else {
+      toast.success("Welcome back!");
+      onSuccess?.();
+    }
+  };
+
+  const handleResend = async () => {
+    if (!email) { toast.error("Please enter your college email first"); return; }
+    setResending(true);
+    const res = await resendVerificationEmail(email);
+    setResending(false);
+    if (res.error) {
+      toast.error(res.error);
+    } else {
+      toast.success("Verification email resent! Please check your inbox and spam folder.");
+    }
   };
 
   return (
@@ -72,7 +96,17 @@ function AuthForm({ onSuccess }: { onSuccess?: () => void }) {
         <input value={email} onChange={e => setEmail(e.target.value)} placeholder="College email" type="email" className="rounded-xl border border-[#2a4050] bg-[#1a3040] px-3 py-3 text-[12px] text-white placeholder-[#708077] outline-none" />
         <input value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" type="password" className="rounded-xl border border-[#2a4050] bg-[#1a3040] px-3 py-3 text-[12px] text-white placeholder-[#708077] outline-none" onKeyDown={e => e.key === "Enter" && submit()} />
         <button disabled={loading} onClick={submit} className="rounded-xl bg-[#F06A3A] py-3 text-[11px] font-bold text-white disabled:opacity-60">{loading ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}</button>
-        <button onClick={() => setMode(mode === "login" ? "register" : "login")} className="text-[11px] font-bold text-[#b4c4b7] underline underline-offset-4">{mode === "login" ? "Need an account? Register" : "Already have an account? Sign in"}</button>
+        {showResend && (
+          <button
+            type="button"
+            disabled={resending}
+            onClick={handleResend}
+            className="text-[11px] font-semibold text-[#F06A3A] underline underline-offset-4 hover:text-[#d85d31] disabled:opacity-60"
+          >
+            {resending ? "Resending email..." : "Resend confirmation email"}
+          </button>
+        )}
+        <button onClick={() => { setMode(mode === "login" ? "register" : "login"); setShowResend(false); }} className="text-[11px] font-bold text-[#b4c4b7] underline underline-offset-4">{mode === "login" ? "Need an account? Register" : "Already have an account? Sign in"}</button>
       </div>
     </div>
   );
